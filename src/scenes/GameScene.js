@@ -3,7 +3,8 @@ import { levels } from '../levels.js';
 const W = 1280;
 const H = 720;
 const MAX_DRAG        = 160;   // pixels the player can drag back
-const VELOCITY_SCALE  = 4.8;   // maps drag distance → launch speed
+const VELOCITY_SCALE  = 3.2;   // maps drag distance → launch speed (reduced so gravity has time to act)
+const GRAVITY_SCALE   = 100;   // multiplier so level G values (80-150) produce strong curves
 const PREVIEW_STEPS   = 220;   // trajectory preview simulation steps
 const PREVIEW_DT      = 1 / 60;
 const MIN_LAUNCH_MAG  = 6;     // ignore taps shorter than this
@@ -276,7 +277,7 @@ export default class GameScene extends Phaser.Scene {
       const r2 = dx * dx + dy * dy;
       const r  = Math.sqrt(r2);
       const softR = Math.max(r, body.radius * 0.5);
-      const acc = G * body.mass / (softR * softR);
+      const acc = GRAVITY_SCALE * G * body.mass / (softR * softR);
       ax += acc * (dx / r);
       ay += acc * (dy / r);
     }
@@ -432,7 +433,7 @@ export default class GameScene extends Phaser.Scene {
           this.trajectoryGfx.fillCircle(px, py, 4);
           return;
         }
-        const acc = G * body.mass / r2;
+        const acc = GRAVITY_SCALE * G * body.mass / r2;
         ax += acc * (dx / r);
         ay += acc * (dy / r);
       }
