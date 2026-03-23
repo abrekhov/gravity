@@ -47,14 +47,17 @@ export default class GameScene extends Phaser.Scene {
   // ─── Scene building ────────────────────────────────────────────────────────
 
   _buildStarfield() {
-    const g = this.add.graphics();
+    const g   = this.add.graphics();
     const rng = new Phaser.Math.RandomDataGenerator(['gravity-stars']);
-    for (let i = 0; i < 180; i++) {
+    // Dim background stars
+    for (let i = 0; i < 220; i++) {
       const x = rng.between(0, W);
       const y = rng.between(0, H);
-      const r = rng.frac() < 0.3 ? 1.5 : 1;
-      const a = rng.realInRange(0.3, 1.0);
-      g.fillStyle(0xffffff, a);
+      const r = rng.frac() < 0.15 ? 1.5 : 1;
+      const a = rng.realInRange(0.12, 0.55);
+      // Occasional slightly warm/cool tint
+      const tint = rng.frac() < 0.15 ? (rng.frac() < 0.5 ? 0xdde8ff : 0xfff0e8) : 0xffffff;
+      g.fillStyle(tint, a);
       g.fillCircle(x, y, r);
     }
   }
@@ -62,52 +65,61 @@ export default class GameScene extends Phaser.Scene {
   _buildGravityBodies() {
     this.bodyGraphics = this.add.graphics();
     for (const body of this.levelConfig.gravityBodies) {
-      this._drawGlowPlanet(this.bodyGraphics, body.x, body.y, body.radius, body.color);
+      this._drawPlanet(this.bodyGraphics, body.x, body.y, body.radius, body.color);
     }
   }
 
-  _drawGlowPlanet(g, x, y, radius, color) {
-    // Outer glow layers
-    for (let i = 5; i >= 1; i--) {
-      const r = radius + i * 7;
-      const a = 0.06 * (6 - i);
-      g.fillStyle(color, a);
-      g.fillCircle(x, y, r);
-    }
-    // Core
-    g.fillStyle(color, 1.0);
+  _drawPlanet(g, x, y, radius, color) {
+    const c = Phaser.Display.Color.ValueToColor(color);
+    // Muted body color (65% brightness)
+    const body  = Phaser.Display.Color.GetColor(Math.round(c.r * 0.65), Math.round(c.g * 0.65), Math.round(c.b * 0.65));
+    // Darker limb (40%)
+    const limb  = Phaser.Display.Color.GetColor(Math.round(c.r * 0.38), Math.round(c.g * 0.38), Math.round(c.b * 0.38));
+
+    // Very subtle atmosphere (2 layers, low alpha)
+    g.fillStyle(color, 0.05);
+    g.fillCircle(x, y, radius + 18);
+    g.fillStyle(color, 0.09);
+    g.fillCircle(x, y, radius + 8);
+
+    // Planet disk: dark limb → body → slight center brightening
+    g.fillStyle(limb, 1.0);
     g.fillCircle(x, y, radius);
-    // Highlight
-    g.fillStyle(0xffffff, 0.25);
-    g.fillCircle(x - radius * 0.3, y - radius * 0.3, radius * 0.35);
+    g.fillStyle(body, 1.0);
+    g.fillCircle(x, y, radius * 0.86);
+    g.fillStyle(color, 0.55);
+    g.fillCircle(x, y, radius * 0.68);
+
+    // Subtle specular
+    g.fillStyle(0xffffff, 0.07);
+    g.fillCircle(x - radius * 0.28, y - radius * 0.28, radius * 0.32);
   }
 
   _buildLaunchZone() {
     const lz = this.levelConfig.launchZone;
     this.launchZoneGfx = this.add.graphics();
     this._drawLaunchZone(1.0);
-    // "LAUNCH" label
-    this.add.text(lz.x, lz.y + lz.radius + 18, 'LAUNCH', {
-      fontSize: '14px',
+    this.add.text(lz.x, lz.y + lz.radius + 14, 'LAUNCH', {
+      fontSize: '12px',
       fontFamily: 'monospace',
-      color: '#00ffee',
-      alpha: 0.7,
-    }).setOrigin(0.5, 0);
+      color: '#6888aa',
+    }).setOrigin(0.5, 0).setAlpha(0.7);
   }
 
   _drawLaunchZone(alpha) {
     const lz = this.levelConfig.launchZone;
     this.launchZoneGfx.clear();
-    // Outer ring
-    this.launchZoneGfx.lineStyle(2, 0x00ffee, 0.6 * alpha);
-    this.launchZoneGfx.strokeCircle(lz.x, lz.y, lz.radius);
-    // Inner fill
-    this.launchZoneGfx.fillStyle(0x00ffee, 0.08 * alpha);
+    // Subtle fill
+    this.launchZoneGfx.fillStyle(0x4466aa, 0.06 * alpha);
     this.launchZoneGfx.fillCircle(lz.x, lz.y, lz.radius);
-    // Cross-hair
-    this.launchZoneGfx.lineStyle(1, 0x00ffee, 0.4 * alpha);
-    this.launchZoneGfx.lineBetween(lz.x - lz.radius * 0.5, lz.y, lz.x + lz.radius * 0.5, lz.y);
-    this.launchZoneGfx.lineBetween(lz.x, lz.y - lz.radius * 0.5, lz.x, lz.y + lz.radius * 0.5);
+    // Outer ring (thin, cool blue-white)
+    this.launchZoneGfx.lineStyle(1.5, 0x7799cc, 0.45 * alpha);
+    this.launchZoneGfx.strokeCircle(lz.x, lz.y, lz.radius);
+    // Small crosshair tick marks (not full lines)
+    const t = lz.radius * 0.28;
+    this.launchZoneGfx.lineStyle(1, 0x9ab0cc, 0.3 * alpha);
+    this.launchZoneGfx.lineBetween(lz.x - t, lz.y, lz.x + t, lz.y);
+    this.launchZoneGfx.lineBetween(lz.x, lz.y - t, lz.x, lz.y + t);
   }
 
   _pulseLaunchZone() {
@@ -127,14 +139,12 @@ export default class GameScene extends Phaser.Scene {
 
   _buildGateway() {
     this.gatewayGfx = this.add.graphics();
-    // "WARP" label
     const gw = this.levelConfig.gateway;
-    this.add.text(gw.x, gw.y + gw.radius + 14, 'WARP', {
-      fontSize: '13px',
+    this.add.text(gw.x, gw.y + gw.radius + 12, 'PORTAL', {
+      fontSize: '11px',
       fontFamily: 'monospace',
-      color: '#ff00ff',
-      alpha: 0.8,
-    }).setOrigin(0.5, 0);
+      color: '#9988bb',
+    }).setOrigin(0.5, 0).setAlpha(0.65);
   }
 
   _startGatewayAnim() {
@@ -149,35 +159,41 @@ export default class GameScene extends Phaser.Scene {
     const gw = this.levelConfig.gateway;
     this.gatewayGfx.clear();
 
-    // Outer halo
-    this.gatewayGfx.fillStyle(0xff00ff, 0.05);
-    this.gatewayGfx.fillCircle(gw.x, gw.y, gw.radius * 2.2);
+    // Soft outer halo
+    this.gatewayGfx.fillStyle(0x7755cc, 0.04);
+    this.gatewayGfx.fillCircle(gw.x, gw.y, gw.radius * 2.4);
+    this.gatewayGfx.fillStyle(0x9966ee, 0.07);
+    this.gatewayGfx.fillCircle(gw.x, gw.y, gw.radius * 1.5);
 
-    // Expanding rings
-    for (let i = 0; i < 4; i++) {
-      const phase = ((t / 1400) + i * 0.25) % 1;
-      const r     = gw.radius * 0.3 + gw.radius * 1.4 * phase;
-      const alpha = (1 - phase) * 0.75;
-      this.gatewayGfx.lineStyle(2, 0xff00ff, alpha);
+    // 3 slow expanding rings, fade out as they grow
+    for (let i = 0; i < 3; i++) {
+      const phase = ((t / 2200) + i / 3) % 1;
+      const r     = gw.radius * 0.4 + gw.radius * 1.3 * phase;
+      const alpha = (1 - phase) * 0.4;
+      this.gatewayGfx.lineStyle(1.5, 0xaa88ff, alpha);
       this.gatewayGfx.strokeCircle(gw.x, gw.y, r);
     }
 
-    // Rotating spokes
-    const angle = (t / 1000) * Math.PI;
-    for (let i = 0; i < 6; i++) {
-      const a = angle + (i / 6) * Math.PI * 2;
-      const x1 = gw.x + Math.cos(a) * gw.radius * 0.25;
-      const y1 = gw.y + Math.sin(a) * gw.radius * 0.25;
-      const x2 = gw.x + Math.cos(a) * gw.radius * 0.85;
-      const y2 = gw.y + Math.sin(a) * gw.radius * 0.85;
-      this.gatewayGfx.lineStyle(1, 0xffffff, 0.4);
-      this.gatewayGfx.lineBetween(x1, y1, x2, y2);
+    // Slow rotating inner ring
+    const angle = (t / 3000) * Math.PI * 2;
+    const ir = gw.radius * 0.55;
+    this.gatewayGfx.lineStyle(1, 0xccbbff, 0.25);
+    this.gatewayGfx.strokeCircle(gw.x, gw.y, ir);
+    // 4 small tick marks on the ring
+    for (let i = 0; i < 4; i++) {
+      const a  = angle + (i / 4) * Math.PI * 2;
+      const r1 = ir - 4, r2 = ir + 4;
+      this.gatewayGfx.lineStyle(1.5, 0xffffff, 0.35);
+      this.gatewayGfx.lineBetween(
+        gw.x + Math.cos(a) * r1, gw.y + Math.sin(a) * r1,
+        gw.x + Math.cos(a) * r2, gw.y + Math.sin(a) * r2,
+      );
     }
 
-    // Inner core
-    this.gatewayGfx.fillStyle(0xff00ff, 0.9);
-    this.gatewayGfx.fillCircle(gw.x, gw.y, 5);
-    this.gatewayGfx.fillStyle(0xffffff, 0.6);
+    // Core glow
+    this.gatewayGfx.fillStyle(0x9966ff, 0.25);
+    this.gatewayGfx.fillCircle(gw.x, gw.y, 8);
+    this.gatewayGfx.fillStyle(0xffffff, 0.9);
     this.gatewayGfx.fillCircle(gw.x, gw.y, 3);
   }
 
@@ -298,24 +314,25 @@ export default class GameScene extends Phaser.Scene {
     this.dotGfx.clear();
     if (!this._dotVisible) return;
 
-    // Draw trail
+    // Trail — very faint, short
     const pts = this.trailPoints;
-    for (let i = 1; i < pts.length; i++) {
-      const alpha = (i / pts.length) * 0.55;
-      const size  = 2 + (i / pts.length) * 2;
-      this.dotGfx.fillStyle(0x88ddff, alpha);
+    const start = Math.max(0, pts.length - 35);
+    for (let i = start; i < pts.length; i++) {
+      const t     = (i - start) / (pts.length - start);
+      const alpha = t * 0.3;
+      const size  = 1 + t * 1.5;
+      this.dotGfx.fillStyle(0xaabbdd, alpha);
       this.dotGfx.fillCircle(pts[i].x, pts[i].y, size);
     }
 
-    // Draw dot
-    const x = this.dot.x;
-    const y = this.dot.y;
-    this.dotGfx.fillStyle(0x88ddff, 0.35);
-    this.dotGfx.fillCircle(x, y, 10);
-    this.dotGfx.fillStyle(0xffffff, 1);
+    // Probe — clean white disc with subtle blue halo
+    const { x, y } = this.dot;
+    this.dotGfx.fillStyle(0x6688bb, 0.2);
+    this.dotGfx.fillCircle(x, y, 9);
+    this.dotGfx.fillStyle(0xddeeff, 0.75);
     this.dotGfx.fillCircle(x, y, 5);
-    this.dotGfx.fillStyle(0x88ddff, 0.8);
-    this.dotGfx.fillCircle(x - 2, y - 2, 2);
+    this.dotGfx.fillStyle(0xffffff, 1.0);
+    this.dotGfx.fillCircle(x, y, 3);
   }
 
   // ─── Collision Detection ───────────────────────────────────────────────────
@@ -445,11 +462,11 @@ export default class GameScene extends Phaser.Scene {
 
       if (px < -120 || px > W + 120 || py < -120 || py > H + 120) break;
 
-      // Draw every 3rd step for dashed look
-      if (i % 3 === 0) {
-        const alpha = Phaser.Math.Linear(0.75, 0.08, i / PREVIEW_STEPS);
-        const size  = Phaser.Math.Linear(3.5, 1.5, i / PREVIEW_STEPS);
-        this.trajectoryGfx.fillStyle(0x88ddff, alpha);
+      // Subtle white dots every 4th step
+      if (i % 4 === 0) {
+        const alpha = Phaser.Math.Linear(0.18, 0.04, i / PREVIEW_STEPS);
+        const size  = Phaser.Math.Linear(2, 1, i / PREVIEW_STEPS);
+        this.trajectoryGfx.fillStyle(0xffffff, alpha);
         this.trajectoryGfx.fillCircle(px, py, size);
       }
     }
@@ -471,15 +488,15 @@ export default class GameScene extends Phaser.Scene {
     const ex = lz.x - nx * arrowLen;
     const ey = lz.y - ny * arrowLen;
 
-    // Shaft
-    this.aimGfx.lineStyle(2, 0x00ffee, 0.8);
+    // Shaft — clean grey-blue line
+    this.aimGfx.lineStyle(1.5, 0x8899cc, 0.65);
     this.aimGfx.lineBetween(lz.x, lz.y, ex, ey);
 
     // Arrowhead
-    const headLen = 12;
-    const headAng = 0.45;
-    const backAngle = Math.atan2(ny, nx);  // points back (from arrow tip toward origin)
-    this.aimGfx.lineStyle(2, 0x00ffee, 0.8);
+    const headLen = 10;
+    const headAng = 0.42;
+    const backAngle = Math.atan2(ny, nx);
+    this.aimGfx.lineStyle(1.5, 0x8899cc, 0.65);
     this.aimGfx.lineBetween(
       ex, ey,
       ex + headLen * Math.cos(backAngle + headAng),
@@ -491,18 +508,9 @@ export default class GameScene extends Phaser.Scene {
       ey + headLen * Math.sin(backAngle - headAng),
     );
 
-    // Power indicator dot on drag point
+    // Small power ring at drag point
     const strength = clamped / MAX_DRAG;
-    const dotColor = Phaser.Display.Color.Interpolate.ColorWithColor(
-      Phaser.Display.Color.ValueToColor(0x00ffee),
-      Phaser.Display.Color.ValueToColor(0xff4444),
-      100,
-      Math.round(strength * 100),
-    );
-    this.aimGfx.fillStyle(
-      Phaser.Display.Color.GetColor(dotColor.r, dotColor.g, dotColor.b),
-      0.9,
-    );
-    this.aimGfx.fillCircle(ptr.x, ptr.y, 6);
+    this.aimGfx.lineStyle(1.5, 0xaabbdd, 0.5);
+    this.aimGfx.strokeCircle(ptr.x, ptr.y, 4 + strength * 5);
   }
 }

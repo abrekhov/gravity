@@ -3,8 +3,8 @@ import GameScene from './scenes/GameScene.js';
 import UIScene   from './scenes/UIScene.js';
 
 const config = {
-  type: Phaser.AUTO,
-  backgroundColor: '#000008',
+  type: Phaser.WEBGL,          // force GPU renderer
+  backgroundColor: '#000814',
   scene: [MenuScene, GameScene, UIScene],
   scale: {
     mode: Phaser.Scale.FIT,
@@ -16,7 +16,9 @@ const config = {
     antialias: true,
     pixelArt: false,
     resolution: window.devicePixelRatio || 1,
+    roundPixels: false,
   },
 };
 
 new Phaser.Game(config);
+
