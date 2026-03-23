@@ -39,7 +39,6 @@ export default class GameScene extends Phaser.Scene {
 
     const dt = Math.min(delta / 1000, 0.05);
     this._stepPhysics(dt);
-    this.dotSprite.setPosition(this.dot.x, this.dot.y);
     this._checkCollisions();
   }
 
@@ -180,22 +179,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _buildDotSprite() {
-    // Draw dot to a render texture so it looks good
-    const rt = this.add.renderTexture(0, 0, 24, 24);
-    const tmp = this.add.graphics();
-    tmp.fillStyle(0x88ddff, 0.3);
-    tmp.fillCircle(12, 12, 10);
-    tmp.fillStyle(0xffffff, 1);
-    tmp.fillCircle(12, 12, 5);
-    rt.draw(tmp, 0, 0);
-    tmp.destroy();
-    rt.setVisible(false);
-
-    // Use Graphics for the dot instead (simpler to position)
     this.dotGfx = this.add.graphics();
-    this.dotSprite = { x: 0, y: 0 };  // plain position object synced to dotGfx
     this._dotVisible = false;
-    rt.destroy();
   }
 
   _buildTrail() {
@@ -372,6 +357,7 @@ export default class GameScene extends Phaser.Scene {
       y: this.levelConfig.gateway.y,
       duration: 300,
       ease: 'Cubic.easeIn',
+      onUpdate: () => this._redrawDot(),
       onComplete: () => {
         this._dotVisible = false;
         this.dotGfx.clear();
