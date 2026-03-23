@@ -3,6 +3,16 @@
 // launchZone: where the player drags from
 // gateway: the exit portal to reach
 // gravityBodies: planets/stars that attract the dot
+//
+// Star colors follow real spectral types:
+//   O/B (blue-white):  0x99aaff, 0x5588ff, 0x4477ee
+//   A   (white-blue):  0xddeeff, 0xeef2ff
+//   F   (yellow-white):0xfff4cc, 0xffee99
+//   G   (yellow, Sun): 0xffcc44, 0xffdd55
+//   K   (orange):      0xff9944, 0xff8833
+//   M   (red-orange):  0xff5533, 0xff4422
+//   Red giant:         0xff3311
+//   Neutron star:      0x66ccff (hot X-ray emitter)
 
 export const levels = [
   // ─── Level 1 ── Tutorial: one planet, wide corridor ──────────────────────
@@ -12,7 +22,7 @@ export const levels = [
     shots: 5,
     G: 80,
     gravityBodies: [
-      { x: 560, y: 480, mass: 3000, radius: 44, color: 0x4488ff },
+      { x: 560, y: 480, mass: 3000, radius: 44, color: 0x4488ff },  // B-type blue
     ],
     launchZone: { x: 160, y: 420, radius: 44 },
     gateway:    { x: 1100, y: 260, radius: 36 },
@@ -25,8 +35,8 @@ export const levels = [
     shots: 4,
     G: 90,
     gravityBodies: [
-      { x: 420, y: 440, mass: 2600, radius: 38, color: 0xff6644 },
-      { x: 800, y: 310, mass: 2800, radius: 42, color: 0x44ffaa },
+      { x: 420, y: 440, mass: 2600, radius: 38, color: 0xff5533 },  // M-type red
+      { x: 800, y: 310, mass: 2800, radius: 42, color: 0xffcc44 },  // G-type yellow
     ],
     launchZone: { x: 150, y: 560, radius: 42 },
     gateway:    { x: 1130, y: 160, radius: 34 },
@@ -39,8 +49,8 @@ export const levels = [
     shots: 4,
     G: 100,
     gravityBodies: [
-      { x: 640, y: 230, mass: 3200, radius: 50, color: 0xaa44ff },
-      { x: 640, y: 530, mass: 2200, radius: 35, color: 0xff44aa },
+      { x: 640, y: 230, mass: 3200, radius: 50, color: 0x5588ff },  // B-type blue giant
+      { x: 640, y: 530, mass: 2200, radius: 35, color: 0xff3311 },  // red supergiant
     ],
     launchZone: { x: 120, y: 370, radius: 40 },
     gateway:    { x: 1160, y: 370, radius: 34 },
@@ -53,9 +63,9 @@ export const levels = [
     shots: 3,
     G: 100,
     gravityBodies: [
-      { x: 380, y: 510, mass: 2000, radius: 32, color: 0x00ffff },
-      { x: 640, y: 360, mass: 2800, radius: 40, color: 0xff8800 },
-      { x: 900, y: 220, mass: 2200, radius: 34, color: 0x88ff00 },
+      { x: 380, y: 510, mass: 2000, radius: 32, color: 0xffee99 },  // F-type yellow-white
+      { x: 640, y: 360, mass: 2800, radius: 40, color: 0xff9944 },  // K-type orange
+      { x: 900, y: 220, mass: 2200, radius: 34, color: 0xfff4cc },  // A/F-type pale
     ],
     launchZone: { x: 140, y: 610, radius: 40 },
     gateway:    { x: 1140, y: 120, radius: 32 },
@@ -68,9 +78,9 @@ export const levels = [
     shots: 3,
     G: 120,
     gravityBodies: [
-      { x: 640, y: 360, mass: 8000, radius: 68, color: 0xffdd00 },
-      { x: 640, y: 170, mass: 800,  radius: 18, color: 0xaaaaff },
-      { x: 640, y: 550, mass: 800,  radius: 18, color: 0xaaffaa },
+      { x: 640, y: 360, mass: 8000, radius: 68, color: 0xffcc44 },  // G-type giant (sun-like)
+      { x: 640, y: 170, mass: 800,  radius: 18, color: 0x99aaff },  // B-type companion
+      { x: 640, y: 550, mass: 800,  radius: 18, color: 0xaabbff },  // B-type companion
     ],
     launchZone: { x: 160, y: 360, radius: 40 },
     gateway:    { x: 1120, y: 360, radius: 32 },
@@ -83,10 +93,10 @@ export const levels = [
     shots: 3,
     G: 110,
     gravityBodies: [
-      { x: 330, y: 210, mass: 2600, radius: 38, color: 0xff3366 },
-      { x: 530, y: 510, mass: 2400, radius: 36, color: 0x33aaff },
-      { x: 730, y: 210, mass: 2600, radius: 38, color: 0xff3366 },
-      { x: 930, y: 510, mass: 2400, radius: 36, color: 0x33aaff },
+      { x: 330, y: 210, mass: 2600, radius: 38, color: 0xff4422 },  // M-type red
+      { x: 530, y: 510, mass: 2400, radius: 36, color: 0x4488ff },  // B-type blue
+      { x: 730, y: 210, mass: 2600, radius: 38, color: 0xff4422 },  // M-type red
+      { x: 930, y: 510, mass: 2400, radius: 36, color: 0x4488ff },  // B-type blue
     ],
     launchZone: { x: 130, y: 360, radius: 38 },
     gateway:    { x: 1150, y: 360, radius: 30 },
@@ -99,8 +109,8 @@ export const levels = [
     shots: 3,
     G: 130,
     gravityBodies: [
-      { x: 640, y: 360, mass: 9000, radius: 74, color: 0xff6600 },
-      { x: 900, y: 560, mass: 1200, radius: 22, color: 0x00ffcc },
+      { x: 640, y: 360, mass: 9000, radius: 74, color: 0xff8833 },  // K-type orange supergiant
+      { x: 900, y: 560, mass: 1200, radius: 22, color: 0x66ccff },  // neutron star (X-ray)
     ],
     launchZone: { x: 150, y: 580, radius: 38 },
     gateway:    { x: 200,  y: 130, radius: 30 },
@@ -113,9 +123,9 @@ export const levels = [
     shots: 3,
     G: 120,
     gravityBodies: [
-      { x: 380, y: 360, mass: 5000, radius: 58, color: 0xff4400 },
-      { x: 900, y: 360, mass: 5000, radius: 58, color: 0x4400ff },
-      { x: 640, y: 360, mass: 1500, radius: 24, color: 0xffffff },
+      { x: 380, y: 360, mass: 5000, radius: 58, color: 0xff3311 },  // red giant
+      { x: 900, y: 360, mass: 5000, radius: 58, color: 0x3366ff },  // O-type blue giant
+      { x: 640, y: 360, mass: 1500, radius: 24, color: 0xeef2ff },  // white dwarf
     ],
     launchZone: { x: 640, y: 650, radius: 38 },
     gateway:    { x: 640, y:  70, radius: 30 },
@@ -128,11 +138,11 @@ export const levels = [
     shots: 3,
     G: 140,
     gravityBodies: [
-      { x: 450, y: 200, mass: 3000, radius: 40, color: 0xff0066 },
-      { x: 640, y: 145, mass: 2500, radius: 35, color: 0x00ff99 },
-      { x: 830, y: 200, mass: 3000, radius: 40, color: 0xff0066 },
-      { x: 450, y: 520, mass: 3000, radius: 40, color: 0x00ff99 },
-      { x: 830, y: 520, mass: 3000, radius: 40, color: 0xff0066 },
+      { x: 450, y: 200, mass: 3000, radius: 40, color: 0xff4422 },  // M-type
+      { x: 640, y: 145, mass: 2500, radius: 35, color: 0x99aaff },  // B-type
+      { x: 830, y: 200, mass: 3000, radius: 40, color: 0xff4422 },  // M-type
+      { x: 450, y: 520, mass: 3000, radius: 40, color: 0x99aaff },  // B-type
+      { x: 830, y: 520, mass: 3000, radius: 40, color: 0xff4422 },  // M-type
     ],
     launchZone: { x: 120, y: 360, radius: 36 },
     gateway:    { x: 1160, y: 360, radius: 28 },
@@ -145,16 +155,16 @@ export const levels = [
     shots: 3,
     G: 150,
     gravityBodies: [
-      { x: 285, y: 505, mass: 2000, radius: 32, color: 0xff2200 },
-      { x: 460, y: 355, mass: 3500, radius: 46, color: 0x2200ff },
-      { x: 355, y: 190, mass: 1800, radius: 28, color: 0x00ff44 },
-      { x: 640, y: 575, mass: 2200, radius: 34, color: 0xff8800 },
-      { x: 640, y: 285, mass: 4000, radius: 52, color: 0xffff00 },
-      { x: 820, y: 475, mass: 2500, radius: 36, color: 0x00ccff },
-      { x: 960, y: 590, mass: 1600, radius: 26, color: 0xff00cc },
-      { x: 855, y: 210, mass: 3000, radius: 40, color: 0x44ff00 },
-      { x: 1050, y: 385, mass: 2000, radius: 30, color: 0xff4488 },
-      { x: 1090, y: 205, mass: 1400, radius: 22, color: 0x88aaff },
+      { x: 285, y: 505, mass: 2000, radius: 32, color: 0xff3311 },  // red giant
+      { x: 460, y: 355, mass: 3500, radius: 46, color: 0x3366ff },  // O-type blue
+      { x: 355, y: 190, mass: 1800, radius: 28, color: 0xffee99 },  // F-type yellow-white
+      { x: 640, y: 575, mass: 2200, radius: 34, color: 0xff9944 },  // K-type orange
+      { x: 640, y: 285, mass: 4000, radius: 52, color: 0xffcc44 },  // G-type yellow
+      { x: 820, y: 475, mass: 2500, radius: 36, color: 0x5588ff },  // B-type blue
+      { x: 960, y: 590, mass: 1600, radius: 26, color: 0xff5533 },  // M-type red-orange
+      { x: 855, y: 210, mass: 3000, radius: 40, color: 0xddeeff },  // A-type white-blue
+      { x: 1050, y: 385, mass: 2000, radius: 30, color: 0xff4422 }, // M-type red
+      { x: 1090, y: 205, mass: 1400, radius: 22, color: 0x66ccff }, // neutron star
     ],
     launchZone: { x: 105, y: 640, radius: 36 },
     gateway:    { x: 1180, y:  75, radius: 26 },

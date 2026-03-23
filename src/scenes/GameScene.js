@@ -70,29 +70,17 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _drawPlanet(g, x, y, radius, color) {
-    const c = Phaser.Display.Color.ValueToColor(color);
-    // Muted body color (65% brightness)
-    const body  = Phaser.Display.Color.GetColor(Math.round(c.r * 0.65), Math.round(c.g * 0.65), Math.round(c.b * 0.65));
-    // Darker limb (40%)
-    const limb  = Phaser.Display.Color.GetColor(Math.round(c.r * 0.38), Math.round(c.g * 0.38), Math.round(c.b * 0.38));
-
-    // Very subtle atmosphere (2 layers, low alpha)
-    g.fillStyle(color, 0.05);
-    g.fillCircle(x, y, radius + 18);
-    g.fillStyle(color, 0.09);
-    g.fillCircle(x, y, radius + 8);
-
-    // Planet disk: dark limb → body → slight center brightening
-    g.fillStyle(limb, 1.0);
+    // Neon glow layers (5 rings, fading outward)
+    for (let i = 5; i >= 1; i--) {
+      g.fillStyle(color, 0.055 * (6 - i));
+      g.fillCircle(x, y, radius + i * 7);
+    }
+    // Solid core
+    g.fillStyle(color, 1.0);
     g.fillCircle(x, y, radius);
-    g.fillStyle(body, 1.0);
-    g.fillCircle(x, y, radius * 0.86);
-    g.fillStyle(color, 0.55);
-    g.fillCircle(x, y, radius * 0.68);
-
-    // Subtle specular
-    g.fillStyle(0xffffff, 0.07);
-    g.fillCircle(x - radius * 0.28, y - radius * 0.28, radius * 0.32);
+    // Bright specular highlight
+    g.fillStyle(0xffffff, 0.28);
+    g.fillCircle(x - radius * 0.3, y - radius * 0.3, radius * 0.35);
   }
 
   _buildLaunchZone() {
@@ -462,11 +450,11 @@ export default class GameScene extends Phaser.Scene {
 
       if (px < -120 || px > W + 120 || py < -120 || py > H + 120) break;
 
-      // Subtle white dots every 4th step
-      if (i % 4 === 0) {
-        const alpha = Phaser.Math.Linear(0.18, 0.04, i / PREVIEW_STEPS);
-        const size  = Phaser.Math.Linear(2, 1, i / PREVIEW_STEPS);
-        this.trajectoryGfx.fillStyle(0xffffff, alpha);
+      // Bright trajectory dots every 3rd step (restored visibility)
+      if (i % 3 === 0) {
+        const alpha = Phaser.Math.Linear(0.72, 0.08, i / PREVIEW_STEPS);
+        const size  = Phaser.Math.Linear(3.5, 1.5, i / PREVIEW_STEPS);
+        this.trajectoryGfx.fillStyle(0x88ddff, alpha);
         this.trajectoryGfx.fillCircle(px, py, size);
       }
     }

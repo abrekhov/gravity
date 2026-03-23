@@ -7,7 +7,7 @@ const config = {
   backgroundColor: '#000814',
   scene: [MenuScene, GameScene, UIScene],
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.EXPAND,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 1280,
     height: 720,
