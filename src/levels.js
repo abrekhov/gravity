@@ -9,6 +9,7 @@ export const levels = [
   {
     id: 1,
     name: 'First Steps',
+    shots: 5,
     G: 80,
     gravityBodies: [
       { x: 560, y: 480, mass: 3000, radius: 44, color: 0x4488ff },
@@ -21,6 +22,7 @@ export const levels = [
   {
     id: 2,
     name: 'Double Trouble',
+    shots: 4,
     G: 90,
     gravityBodies: [
       { x: 420, y: 440, mass: 2600, radius: 38, color: 0xff6644 },
@@ -34,6 +36,7 @@ export const levels = [
   {
     id: 3,
     name: 'Needle Eye',
+    shots: 4,
     G: 100,
     gravityBodies: [
       { x: 640, y: 230, mass: 3200, radius: 50, color: 0xaa44ff },
@@ -47,6 +50,7 @@ export const levels = [
   {
     id: 4,
     name: 'Chain Reaction',
+    shots: 3,
     G: 100,
     gravityBodies: [
       { x: 380, y: 510, mass: 2000, radius: 32, color: 0x00ffff },
@@ -61,6 +65,7 @@ export const levels = [
   {
     id: 5,
     name: 'The Slingshot',
+    shots: 3,
     G: 120,
     gravityBodies: [
       { x: 640, y: 360, mass: 8000, radius: 68, color: 0xffdd00 },
@@ -75,6 +80,7 @@ export const levels = [
   {
     id: 6,
     name: 'Slalom',
+    shots: 3,
     G: 110,
     gravityBodies: [
       { x: 330, y: 210, mass: 2600, radius: 38, color: 0xff3366 },
@@ -90,6 +96,7 @@ export const levels = [
   {
     id: 7,
     name: 'Full Circle',
+    shots: 3,
     G: 130,
     gravityBodies: [
       { x: 640, y: 360, mass: 9000, radius: 74, color: 0xff6600 },
@@ -103,6 +110,7 @@ export const levels = [
   {
     id: 8,
     name: 'Binary Star',
+    shots: 3,
     G: 120,
     gravityBodies: [
       { x: 380, y: 360, mass: 5000, radius: 58, color: 0xff4400 },
@@ -117,6 +125,7 @@ export const levels = [
   {
     id: 9,
     name: 'The Gauntlet',
+    shots: 3,
     G: 140,
     gravityBodies: [
       { x: 450, y: 200, mass: 3000, radius: 40, color: 0xff0066 },
@@ -133,6 +142,7 @@ export const levels = [
   {
     id: 10,
     name: 'The Labyrinth',
+    shots: 3,
     G: 150,
     gravityBodies: [
       { x: 285, y: 505, mass: 2000, radius: 32, color: 0xff2200 },

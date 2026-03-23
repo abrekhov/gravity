@@ -7,8 +7,6 @@ export default class UIScene extends Phaser.Scene {
   constructor() { super('UIScene'); }
 
   create() {
-    this.attempts = 0;
-
     // Semi-transparent overlay (hidden by default, shown on win/fail)
     this.overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0)
       .setDepth(20).setAlpha(0);
@@ -28,22 +26,25 @@ export default class UIScene extends Phaser.Scene {
       fontSize: '18px',
       fontFamily: 'monospace',
       color: '#ffffff',
-      alpha: 0.85,
     }).setDepth(21);
 
-    this.attemptsText = this.add.text(W - 24, 18, 'ATTEMPT 1', {
-      fontSize: '16px',
-      fontFamily: 'monospace',
-      color: '#aaaaaa',
-    }).setOrigin(1, 0).setDepth(21);
+    // Shot dots — one filled circle per available shot, right-aligned
+    const total = levelConf.shots ?? 3;
+    this.shotDots = [];
+    const dotR    = 7;
+    const spacing = 20;
+    for (let i = 0; i < total; i++) {
+      const x = W - 20 - (total - 1 - i) * spacing;
+      const dot = this.add.circle(x, 22, dotR, 0x00ffee, 1).setDepth(21);
+      this.shotDots.push(dot);
+    }
 
     // Aim hint — fades out after first launch
     this.aimHint = this.add.text(W / 2, H - 38, 'Drag from the LAUNCH zone to aim · Release to fire', {
       fontSize: '15px',
       fontFamily: 'monospace',
       color: '#00ffee',
-      alpha: 0.7,
-    }).setOrigin(0.5, 1).setDepth(21);
+    }).setOrigin(0.5, 1).setDepth(21).setAlpha(0.7);
 
     // Hide hint when dot is launched
     const game = this.scene.get('GameScene');
@@ -162,8 +163,9 @@ export default class UIScene extends Phaser.Scene {
 
   _listenToGameScene() {
     const game = this.scene.get('GameScene');
-    game.events.on('levelWon',    this._onWin,  this);
-    game.events.on('levelFailed', this._onFail, this);
+    game.events.on('levelWon',    this._onWin,      this);
+    game.events.on('levelFailed', this._onFail,     this);
+    game.events.on('shotUsed',    this._onShotUsed, this);
   }
 
   _onWin(levelId) {
@@ -180,9 +182,19 @@ export default class UIScene extends Phaser.Scene {
     this.winGroup.setVisible(true);
   }
 
+  _onShotUsed(remaining) {
+    // Dim the dot that was just consumed (rightmost active → leftmost used)
+    const usedIndex = this.shotDots.length - remaining - 1;
+    if (this.shotDots[usedIndex]) {
+      this.tweens.add({ targets: this.shotDots[usedIndex], alpha: 0.15, duration: 250 });
+    }
+  }
+
   _onFail() {
-    this.attempts++;
-    this.attemptsText.setText(`ATTEMPT ${this.attempts + 1}`);
+    // Dim any remaining shot dots then show the overlay
+    this.shotDots.forEach(dot => {
+      this.tweens.add({ targets: dot, alpha: 0.15, duration: 250 });
+    });
     this._fadeInOverlay();
     this.failGroup.setVisible(true);
   }

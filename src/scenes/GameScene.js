@@ -17,10 +17,11 @@ export default class GameScene extends Phaser.Scene {
     const levelId = this.registry.get('currentLevel') ?? 1;
     this.levelConfig = levels.find(l => l.id === levelId) ?? levels[0];
 
-    this.phase       = 'aiming';   // 'aiming' | 'flying' | 'dead' | 'won'
-    this.dot         = null;       // { x, y, vx, vy }
-    this.isDragging  = false;
-    this.dragStart   = { x: 0, y: 0 };
+    this.phase          = 'aiming';   // 'aiming' | 'flying' | 'dead' | 'won'
+    this.dot            = null;       // { x, y, vx, vy }
+    this.isDragging     = false;
+    this.dragStart      = { x: 0, y: 0 };
+    this.shotsRemaining = this.levelConfig.shots ?? 3;
 
     this._buildStarfield();
     this._buildGravityBodies();
@@ -384,10 +385,26 @@ export default class GameScene extends Phaser.Scene {
     this.phase = 'dead';
     this._dotVisible = false;
     this.dotGfx.clear();
-    this.cameras.main.shake(300, 0.012);
-    this.time.delayedCall(200, () => {
-      this.events.emit('levelFailed');
+    this.cameras.main.shake(220, 0.012);
+    this.cameras.main.flash(180, 255, 40, 40, false);
+
+    this.time.delayedCall(420, () => {
+      this.shotsRemaining--;
+      if (this.shotsRemaining <= 0) {
+        this.events.emit('levelFailed');
+      } else {
+        this.events.emit('shotUsed', this.shotsRemaining);
+        this._resetToAiming();
+      }
     });
+  }
+
+  _resetToAiming() {
+    this.phase = 'aiming';
+    this.dot = null;
+    this._dotVisible = false;
+    this.trailPoints = [];
+    this.launchZoneGfx.setAlpha(1);
   }
 
   // ─── Trajectory Preview ────────────────────────────────────────────────────
