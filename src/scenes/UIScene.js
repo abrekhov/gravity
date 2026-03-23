@@ -203,6 +203,7 @@ export default class UIScene extends Phaser.Scene {
     this.failGroup.setVisible(false);
     this.scene.stop('UIScene');
     this.scene.restart('GameScene');
+    this.scene.launch('UIScene');
   }
 
   _goNextLevel() {

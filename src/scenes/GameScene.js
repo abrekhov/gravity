@@ -109,15 +109,16 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _pulseLaunchZone() {
+    const tgt = { v: 1 };
     this.tweens.add({
-      targets: { v: 1 },
+      targets: tgt,
       v: 0.4,
       duration: 900,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.easeInOut',
-      onUpdate: (tween, target) => {
-        if (this.phase === 'aiming') this._drawLaunchZone(target.v + 0.4);
+      onUpdate: () => {
+        if (this.phase === 'aiming') this._drawLaunchZone(tgt.v + 0.4);
       },
     });
   }
