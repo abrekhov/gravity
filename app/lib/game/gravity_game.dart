@@ -1,0 +1,676 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui';
+
+import 'package:flame/components.dart';
+import 'package:flame/events.dart';
+import 'package:flame/game.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'level_data.dart';
+import 'physics.dart';
+
+// ─── Events ──────────────────────────────────────────────────────────────────
+
+sealed class GameEvent {}
+
+class LevelStarted extends GameEvent {
+  final LevelData level;
+  LevelStarted(this.level);
+}
+
+class LevelWon extends GameEvent {
+  final int levelId;
+  LevelWon(this.levelId);
+}
+
+class LevelFailed extends GameEvent {}
+
+class ShotUsed extends GameEvent {
+  final int remaining;
+  ShotUsed(this.remaining);
+}
+
+class DotLaunched extends GameEvent {}
+
+// ─── Phase ───────────────────────────────────────────────────────────────────
+
+enum _Phase { aiming, flying, dead, won }
+
+// ─── Main Game ───────────────────────────────────────────────────────────────
+
+class GravityGame extends FlameGame with DragCallbacks {
+  // Public state (read by overlays)
+  int currentLevelId = 1;
+  int unlockedLevelId = 1;
+  LevelData? activeLevel;
+
+  final _eventCtrl = StreamController<GameEvent>.broadcast();
+  Stream<GameEvent> get events => _eventCtrl.stream;
+
+  // Private state
+  _Phase _phase = _Phase.aiming;
+  DotState? _dot;
+  int _shotsRemaining = 0;
+  bool _isDragging = false;
+  Vector2 _dragStart = Vector2.zero();
+  Vector2 _dragCurrent = Vector2.zero();
+  final _trail = <Vector2>[];
+
+  // Components
+  late final World _world;
+  late final CameraComponent _camera;
+  final _levelComponents = <Component>[];
+  _DotComponent? _dotComp;
+  _TrajectoryComponent? _trajComp;
+  _AimArrowComponent? _aimComp;
+  _GatewayComponent? _gatewayComp;
+  _LaunchZoneComponent? _lzComp;
+
+  // Prefs
+  late SharedPreferences _prefs;
+
+  @override
+  Color backgroundColor() => const Color(0xFF000814);
+
+  @override
+  Future<void> onLoad() async {
+    _world = World();
+    _camera = CameraComponent.withFixedResolution(
+      world: _world,
+      width: 1280,
+      height: 720,
+    );
+    _camera.viewfinder.anchor = Anchor.topLeft;
+    await addAll([_world, _camera]);
+
+    _prefs = await SharedPreferences.getInstance();
+    unlockedLevelId = _prefs.getInt('gravity_unlocked') ?? 1;
+    currentLevelId = unlockedLevelId;
+
+    await _world.add(_StarfieldComponent());
+    overlays.add('MainMenu');
+  }
+
+  // ─── Level management ────────────────────────────────────────────────────
+
+  Future<void> startLevel(int levelId) async {
+    currentLevelId = levelId;
+    activeLevel = kLevels.firstWhere((l) => l.id == levelId);
+    _phase = _Phase.aiming;
+    _shotsRemaining = activeLevel!.shots;
+    _dot = null;
+    _trail.clear();
+    _isDragging = false;
+
+    for (final c in _levelComponents) {
+      c.removeFromParent();
+    }
+    _levelComponents.clear();
+
+    for (final body in activeLevel!.gravityBodies) {
+      final p = _PlanetComponent(body);
+      _levelComponents.add(p);
+      _world.add(p);
+    }
+
+    _lzComp = _LaunchZoneComponent(activeLevel!.launchZone);
+    _gatewayComp = _GatewayComponent(activeLevel!.gateway);
+    _trajComp = _TrajectoryComponent();
+    _aimComp = _AimArrowComponent();
+    _dotComp = _DotComponent();
+
+    for (final c in [_lzComp!, _gatewayComp!, _trajComp!, _aimComp!, _dotComp!]) {
+      _levelComponents.add(c);
+      _world.add(c);
+    }
+
+    overlays.remove('MainMenu');
+    overlays.remove('LevelSelect');
+    overlays.remove('WinOverlay');
+    overlays.remove('FailOverlay');
+    if (!overlays.isActive('HUD')) overlays.add('HUD');
+
+    _eventCtrl.add(LevelStarted(activeLevel!));
+  }
+
+  void retry() {
+    overlays.remove('WinOverlay');
+    overlays.remove('FailOverlay');
+    startLevel(currentLevelId);
+  }
+
+  void nextLevel() {
+    final nextId = (activeLevel?.id ?? 0) + 1;
+    startLevel(nextId > kLevels.length ? 1 : nextId);
+  }
+
+  void goToMenu({bool showLevels = false}) {
+    overlays.remove('HUD');
+    overlays.remove('WinOverlay');
+    overlays.remove('FailOverlay');
+    for (final c in _levelComponents) c.removeFromParent();
+    _levelComponents.clear();
+    activeLevel = null;
+    _dot = null;
+    overlays.add(showLevels ? 'LevelSelect' : 'MainMenu');
+  }
+
+  // ─── Game loop ───────────────────────────────────────────────────────────
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (_phase != _Phase.flying || _dot == null || activeLevel == null) return;
+
+    final cdt = dt.clamp(0.0, 0.05);
+    Physics.step(_dot!, activeLevel!, cdt);
+    _trail.add(Vector2(_dot!.x, _dot!.y));
+    if (_trail.length > 60) _trail.removeAt(0);
+    _dotComp?.updateState(_dot!, List.of(_trail));
+    _checkCollisions();
+  }
+
+  // ─── Input ───────────────────────────────────────────────────────────────
+
+  /// Convert canvas/screen coordinates to 1280×720 world coordinates.
+  Vector2 _toWorld(Vector2 screenPos) {
+    final scale = math.min(size.x / 1280, size.y / 720);
+    final offsetX = (size.x - 1280 * scale) / 2;
+    final offsetY = (size.y - 720 * scale) / 2;
+    return Vector2(
+      (screenPos.x - offsetX) / scale,
+      (screenPos.y - offsetY) / scale,
+    );
+  }
+
+  Vector2 _dragToVelocity(Vector2 ptr) {
+    final raw = ptr - _dragStart;
+    final mag = raw.length;
+    if (mag < 0.001) return Vector2.zero();
+    final clamped = math.min(mag, Physics.maxDrag);
+    return -raw / mag * (clamped * Physics.velocityScale);
+  }
+
+  @override
+  void onDragStart(DragStartEvent event) {
+    if (_phase != _Phase.aiming || activeLevel == null) return;
+    final pos = _toWorld(event.localPosition);
+    final lz = activeLevel!.launchZone;
+    final dist = (pos - Vector2(lz.x, lz.y)).length;
+    if (dist > lz.radius * 1.5) return;
+    _isDragging = true;
+    _dragStart = pos.clone();
+    _dragCurrent = pos.clone();
+  }
+
+  @override
+  void onDragUpdate(DragUpdateEvent event) {
+    if (!_isDragging || activeLevel == null) return;
+    _dragCurrent = _toWorld(event.localPosition);
+    final vel = _dragToVelocity(_dragCurrent);
+    _trajComp?.setPreview(vel.x, vel.y, activeLevel!);
+    _aimComp?.setDrag(_dragStart, _dragCurrent, activeLevel!.launchZone);
+  }
+
+  @override
+  void onDragEnd(DragEndEvent event) {
+    if (!_isDragging || activeLevel == null) return;
+    _isDragging = false;
+    _trajComp?.clear();
+    _aimComp?.clear();
+    final raw = _dragCurrent - _dragStart;
+    if (raw.length < Physics.minLaunchMag) return;
+    _launch(_dragToVelocity(_dragCurrent));
+  }
+
+  @override
+  void onDragCancel(DragCancelEvent event) {
+    _isDragging = false;
+    _trajComp?.clear();
+    _aimComp?.clear();
+  }
+
+  void _launch(Vector2 vel) {
+    final lz = activeLevel!.launchZone;
+    _dot = DotState(lz.x, lz.y, vel.x, vel.y);
+    _phase = _Phase.flying;
+    _lzComp?.setDimmed(true);
+    _eventCtrl.add(DotLaunched());
+  }
+
+  // ─── Collisions ──────────────────────────────────────────────────────────
+
+  void _checkCollisions() {
+    final dot = _dot!;
+    final level = activeLevel!;
+
+    // Gateway win
+    final gw = level.gateway;
+    final dgw = math.sqrt(
+        (dot.x - gw.x) * (dot.x - gw.x) + (dot.y - gw.y) * (dot.y - gw.y));
+    if (dgw < gw.radius) {
+      _triggerWin();
+      return;
+    }
+
+    // Planet collision
+    for (final body in level.gravityBodies) {
+      final d = math.sqrt((dot.x - body.x) * (dot.x - body.x) +
+          (dot.y - body.y) * (dot.y - body.y));
+      if (d < body.radius * 1.05) {
+        _triggerFail();
+        return;
+      }
+    }
+
+    // Out of bounds
+    if (dot.x < -120 || dot.x > 1400 || dot.y < -120 || dot.y > 840) {
+      _triggerFail();
+    }
+  }
+
+  void _triggerWin() {
+    if (_phase == _Phase.won) return;
+    _phase = _Phase.won;
+
+    final nextId = activeLevel!.id + 1;
+    if (nextId > unlockedLevelId && nextId <= kLevels.length + 1) {
+      unlockedLevelId = nextId;
+      _prefs.setInt('gravity_unlocked', nextId);
+    }
+
+    Future.delayed(const Duration(milliseconds: 350), () {
+      _eventCtrl.add(LevelWon(activeLevel!.id));
+      overlays.add('WinOverlay');
+    });
+  }
+
+  void _triggerFail() {
+    if (_phase == _Phase.dead) return;
+    _phase = _Phase.dead;
+    _dotComp?.hide();
+
+    Future.delayed(const Duration(milliseconds: 420), () {
+      _shotsRemaining--;
+      if (_shotsRemaining <= 0) {
+        _eventCtrl.add(LevelFailed());
+        overlays.add('FailOverlay');
+      } else {
+        _eventCtrl.add(ShotUsed(_shotsRemaining));
+        _resetToAiming();
+      }
+    });
+  }
+
+  void _resetToAiming() {
+    _phase = _Phase.aiming;
+    _dot = null;
+    _trail.clear();
+    _lzComp?.setDimmed(false);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Visual Components
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Starfield ───────────────────────────────────────────────────────────────
+
+class _Star {
+  final double x, y, r, a;
+  final Color color;
+  _Star(this.x, this.y, this.r, this.a, this.color);
+}
+
+class _StarfieldComponent extends Component {
+  final _stars = <_Star>[];
+  // Twinkling stars
+  final _bright = <_Star>[];
+  final _brightAlpha = <double>[];
+  final _brightPhase = <double>[];
+  final _brightSpeed = <double>[];
+
+  @override
+  Future<void> onLoad() async {
+    final rng = math.Random(0x47524156);
+    for (int i = 0; i < 220; i++) {
+      final x = rng.nextDouble() * 1280;
+      final y = rng.nextDouble() * 720;
+      final r = rng.nextDouble() < 0.15 ? 1.5 : 1.0;
+      final a = 0.12 + rng.nextDouble() * 0.43;
+      Color col = const Color(0xFFFFFFFF);
+      if (rng.nextDouble() < 0.15) {
+        col = rng.nextBool()
+            ? const Color(0xFFDDE8FF)
+            : const Color(0xFFFFF0E8);
+      }
+      _stars.add(_Star(x, y, r, a, col));
+    }
+    for (int i = 0; i < 12; i++) {
+      final x = 60 + rng.nextDouble() * (1280 - 120);
+      final y = 60 + rng.nextDouble() * (720 - 120);
+      _bright.add(_Star(x, y, 1.5, 0.9, const Color(0xFFFFFFFF)));
+      _brightAlpha.add(0.9);
+      _brightPhase.add(rng.nextDouble() * math.pi * 2);
+      _brightSpeed.add(math.pi / (0.6 + rng.nextDouble() * 0.9)); // rad/s
+    }
+  }
+
+  @override
+  void update(double dt) {
+    for (int i = 0; i < _bright.length; i++) {
+      _brightPhase[i] += _brightSpeed[i] * dt;
+      _brightAlpha[i] = 0.1 + 0.8 * (math.sin(_brightPhase[i]) * 0.5 + 0.5);
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    for (final s in _stars) {
+      canvas.drawCircle(
+        Offset(s.x, s.y),
+        s.r,
+        Paint()..color = s.color.withOpacity(s.a),
+      );
+    }
+    for (int i = 0; i < _bright.length; i++) {
+      canvas.drawCircle(
+        Offset(_bright[i].x, _bright[i].y),
+        1.5,
+        Paint()..color = const Color(0xFFFFFFFF).withOpacity(_brightAlpha[i]),
+      );
+    }
+  }
+}
+
+// ─── Planet ──────────────────────────────────────────────────────────────────
+
+class _PlanetComponent extends Component {
+  final GravityBody body;
+  _PlanetComponent(this.body) : super(priority: 1);
+
+  @override
+  void render(Canvas canvas) {
+    final c = body.color;
+    // 5 glow layers
+    for (int i = 5; i >= 1; i--) {
+      canvas.drawCircle(
+        Offset(body.x, body.y),
+        body.radius + i * 7,
+        Paint()..color = c.withOpacity(0.055 * (6 - i)),
+      );
+    }
+    // Solid core
+    canvas.drawCircle(Offset(body.x, body.y), body.radius, Paint()..color = c);
+    // Specular highlight
+    canvas.drawCircle(
+      Offset(body.x - body.radius * 0.3, body.y - body.radius * 0.3),
+      body.radius * 0.35,
+      Paint()..color = const Color(0xFFFFFFFF).withOpacity(0.28),
+    );
+  }
+}
+
+// ─── Launch Zone ─────────────────────────────────────────────────────────────
+
+class _LaunchZoneComponent extends Component {
+  final Zone config;
+  double _alpha = 1.0;
+  bool _dimmed = false;
+  double _pulsePhase = 0;
+
+  _LaunchZoneComponent(this.config) : super(priority: 2);
+
+  void setDimmed(bool v) => _dimmed = v;
+
+  @override
+  void update(double dt) {
+    if (!_dimmed) {
+      _pulsePhase += dt * math.pi / 0.9; // 900ms period
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (_dimmed) {
+      _drawLaunchZone(canvas, 0.3);
+      return;
+    }
+    final pulse = (math.sin(_pulsePhase) * 0.5 + 0.5); // 0..1
+    final a = 0.4 + 0.6 * pulse;
+    _drawLaunchZone(canvas, a);
+  }
+
+  void _drawLaunchZone(Canvas canvas, double a) {
+    final x = config.x, y = config.y, r = config.radius;
+
+    // Subtle fill
+    canvas.drawCircle(
+      Offset(x, y), r,
+      Paint()..color = const Color(0xFF4466AA).withOpacity(0.06 * a),
+    );
+    // Outer ring
+    canvas.drawCircle(
+      Offset(x, y), r,
+      Paint()
+        ..color = const Color(0xFF7799CC).withOpacity(0.45 * a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+    // Crosshair ticks
+    final t = r * 0.28;
+    final tickPaint = Paint()
+      ..color = const Color(0xFF9AB0CC).withOpacity(0.3 * a)
+      ..strokeWidth = 1.0;
+    canvas.drawLine(Offset(x - t, y), Offset(x + t, y), tickPaint);
+    canvas.drawLine(Offset(x, y - t), Offset(x, y + t), tickPaint);
+  }
+}
+
+// ─── Gateway ─────────────────────────────────────────────────────────────────
+
+class _GatewayComponent extends Component {
+  final Zone config;
+  double _elapsed = 0; // ms
+
+  _GatewayComponent(this.config) : super(priority: 3);
+
+  @override
+  void update(double dt) => _elapsed += dt * 1000;
+
+  @override
+  void render(Canvas canvas) {
+    final gx = config.x, gy = config.y, gr = config.radius;
+    final t = _elapsed;
+
+    // Soft outer halos
+    canvas.drawCircle(Offset(gx, gy), gr * 2.4,
+        Paint()..color = const Color(0xFF7755CC).withOpacity(0.04));
+    canvas.drawCircle(Offset(gx, gy), gr * 1.5,
+        Paint()..color = const Color(0xFF9966EE).withOpacity(0.07));
+
+    // 3 slow expanding rings
+    for (int i = 0; i < 3; i++) {
+      final phase = ((t / 2200) + i / 3) % 1;
+      final rad = gr * 0.4 + gr * 1.3 * phase;
+      final alpha = (1 - phase) * 0.4;
+      canvas.drawCircle(
+        Offset(gx, gy), rad,
+        Paint()
+          ..color = const Color(0xFFAA88FF).withOpacity(alpha)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
+
+    // Rotating inner ring
+    final angle = (t / 3000) * math.pi * 2;
+    final ir = gr * 0.55;
+    canvas.drawCircle(
+      Offset(gx, gy), ir,
+      Paint()
+        ..color = const Color(0xFFCCBBFF).withOpacity(0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+    // 4 tick marks
+    for (int i = 0; i < 4; i++) {
+      final a = angle + (i / 4) * math.pi * 2;
+      final r1 = ir - 4, r2 = ir + 4;
+      canvas.drawLine(
+        Offset(gx + math.cos(a) * r1, gy + math.sin(a) * r1),
+        Offset(gx + math.cos(a) * r2, gy + math.sin(a) * r2),
+        Paint()
+          ..color = const Color(0xFFFFFFFF).withOpacity(0.35)
+          ..strokeWidth = 1.5,
+      );
+    }
+
+    // Core
+    canvas.drawCircle(Offset(gx, gy), 8,
+        Paint()..color = const Color(0xFF9966FF).withOpacity(0.25));
+    canvas.drawCircle(Offset(gx, gy), 3,
+        Paint()..color = const Color(0xFFFFFFFF).withOpacity(0.9));
+  }
+}
+
+// ─── Dot ─────────────────────────────────────────────────────────────────────
+
+class _DotComponent extends Component {
+  DotState? _dot;
+  List<Vector2> _trail = [];
+  bool _visible = false;
+
+  _DotComponent() : super(priority: 10);
+
+  void updateState(DotState dot, List<Vector2> trail) {
+    _dot = dot;
+    _trail = trail;
+    _visible = true;
+  }
+
+  void hide() => _visible = false;
+
+  @override
+  void render(Canvas canvas) {
+    if (!_visible || _dot == null) return;
+
+    // Trail
+    final pts = _trail;
+    final start = math.max(0, pts.length - 35);
+    for (int i = start; i < pts.length; i++) {
+      final t = (i - start) / (pts.length - start);
+      final alpha = t * 0.3;
+      final sz = 1 + t * 1.5;
+      canvas.drawCircle(
+        Offset(pts[i].x, pts[i].y),
+        sz,
+        Paint()..color = const Color(0xFFAABBDD).withOpacity(alpha),
+      );
+    }
+
+    // Probe layers
+    final x = _dot!.x, y = _dot!.y;
+    canvas.drawCircle(Offset(x, y), 9,
+        Paint()..color = const Color(0xFF6688BB).withOpacity(0.2));
+    canvas.drawCircle(Offset(x, y), 5,
+        Paint()..color = const Color(0xFFDDEEFF).withOpacity(0.75));
+    canvas.drawCircle(Offset(x, y), 3,
+        Paint()..color = const Color(0xFFFFFFFF));
+  }
+}
+
+// ─── Trajectory ──────────────────────────────────────────────────────────────
+
+class _TrajectoryComponent extends Component {
+  List<TrajectoryPoint> _points = [];
+
+  _TrajectoryComponent() : super(priority: 4);
+
+  void setPreview(double vx, double vy, LevelData level) {
+    _points = Physics.simulateTrajectory(vx, vy, level);
+  }
+
+  void clear() => _points = [];
+
+  @override
+  void render(Canvas canvas) {
+    for (final pt in _points) {
+      final color = pt.isImpact
+          ? const Color(0xFFFF4444).withOpacity(pt.alpha)
+          : const Color(0xFF88DDFF).withOpacity(pt.alpha);
+      canvas.drawCircle(Offset(pt.x, pt.y), pt.size, Paint()..color = color);
+    }
+  }
+}
+
+// ─── Aim Arrow ───────────────────────────────────────────────────────────────
+
+class _AimArrowComponent extends Component {
+  bool _active = false;
+  Vector2 _start = Vector2.zero();
+  Vector2 _current = Vector2.zero();
+  Zone? _lz;
+
+  _AimArrowComponent() : super(priority: 5);
+
+  void setDrag(Vector2 start, Vector2 current, Zone lz) {
+    _active = true;
+    _start = start;
+    _current = current;
+    _lz = lz;
+  }
+
+  void clear() => _active = false;
+
+  @override
+  void render(Canvas canvas) {
+    if (!_active || _lz == null) return;
+
+    final raw = _current - _start;
+    final mag = raw.length;
+    if (mag < 2) return;
+
+    final clamped = math.min(mag, Physics.maxDrag);
+    final n = raw / mag;
+
+    // Arrow from launch zone center, pointing opposite to drag
+    final arrowLen = clamped * 0.7;
+    final ex = _lz!.x - n.x * arrowLen;
+    final ey = _lz!.y - n.y * arrowLen;
+
+    final shaft = Paint()
+      ..color = const Color(0xFF8899CC).withOpacity(0.65)
+      ..strokeWidth = 1.5;
+    canvas.drawLine(Offset(_lz!.x, _lz!.y), Offset(ex, ey), shaft);
+
+    // Arrowhead
+    final headLen = 10.0;
+    final headAng = 0.42;
+    final backAngle = math.atan2(n.y, n.x);
+    canvas.drawLine(
+      Offset(ex, ey),
+      Offset(ex + headLen * math.cos(backAngle + headAng),
+          ey + headLen * math.sin(backAngle + headAng)),
+      shaft,
+    );
+    canvas.drawLine(
+      Offset(ex, ey),
+      Offset(ex + headLen * math.cos(backAngle - headAng),
+          ey + headLen * math.sin(backAngle - headAng)),
+      shaft,
+    );
+
+    // Power ring at drag point
+    final strength = clamped / Physics.maxDrag;
+    canvas.drawCircle(
+      Offset(_current.x, _current.y),
+      4 + strength * 5,
+      Paint()
+        ..color = const Color(0xFFAABBDD).withOpacity(0.5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+}
