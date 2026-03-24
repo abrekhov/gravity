@@ -36,7 +36,7 @@ jobs:
         working-directory: app
 
       - name: Build web
-        run: flutter build web --release --web-renderer canvaskit --base-href "/"
+        run: flutter build web --release --web-renderer html --base-href "/"
         working-directory: app
 
       - name: Setup Pages
