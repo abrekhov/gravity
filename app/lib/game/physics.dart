@@ -21,26 +21,44 @@ class Physics {
   static const double _previewDt = 1.0 / 60.0;
   static const int _previewSteps = 220;
 
-  /// One Euler integration step — matches GameScene._stepPhysics exactly.
+  // Dot collision radius used for wall reflection
+  static const double _dotRadius = 5.0;
+
+  /// One Euler integration step.
   static void step(DotState dot, LevelData level, double dt) {
     double ax = 0, ay = 0;
+
     for (final body in level.gravityBodies) {
       final dx = body.x - dot.x;
       final dy = body.y - dot.y;
       final r = math.sqrt(dx * dx + dy * dy);
       final softR = math.max(r, body.radius * 0.5);
-      final acc =
-          gravityScale * level.g * body.mass / (softR * softR);
+      final acc = gravityScale * level.g * body.mass / (softR * softR);
       ax += acc * (dx / r);
       ay += acc * (dy / r);
     }
+
+    for (final bh in level.blackHoles) {
+      final dx = bh.x - dot.x;
+      final dy = bh.y - dot.y;
+      final r = math.sqrt(dx * dx + dy * dy);
+      final softR = math.max(r, bh.radius * 0.5);
+      final acc = gravityScale * level.g * bh.mass / (softR * softR);
+      ax += acc * (dx / r);
+      ay += acc * (dy / r);
+    }
+
     dot.vx += ax * dt;
     dot.vy += ay * dt;
     dot.x += dot.vx * dt;
     dot.y += dot.vy * dt;
+
+    for (final wall in level.walls) {
+      _reflectWall(dot, wall);
+    }
   }
 
-  /// Simulate a trajectory preview — matches GameScene._redrawTrajectory.
+  /// Simulate a trajectory preview.
   static List<TrajectoryPoint> simulateTrajectory(
       double launchVx, double launchVy, LevelData level) {
     final points = <TrajectoryPoint>[];
@@ -64,12 +82,32 @@ class Physics {
         ay += acc * (dy / r);
       }
 
+      for (final bh in level.blackHoles) {
+        final dx = bh.x - px;
+        final dy = bh.y - py;
+        final r = math.sqrt(dx * dx + dy * dy);
+        if (r < bh.radius) {
+          points.add(TrajectoryPoint(px, py, 4, 0.8, isImpact: true));
+          return points;
+        }
+        final acc = gravityScale * level.g * bh.mass / (r * r);
+        ax += acc * (dx / r);
+        ay += acc * (dy / r);
+      }
+
       vx += ax * _previewDt;
       vy += ay * _previewDt;
       px += vx * _previewDt;
       py += vy * _previewDt;
 
-      if (px < -120 || px > 1400 || py < -120 || py > 840) break;
+      // Reflect off walls in the preview
+      final tmp = DotState(px, py, vx, vy);
+      for (final wall in level.walls) {
+        _reflectWall(tmp, wall);
+      }
+      px = tmp.x; py = tmp.y; vx = tmp.vx; vy = tmp.vy;
+
+      if (px < -120 || px > 2680 || py < -120 || py > 840) break;
 
       if (i % 3 == 0) {
         final t = i / _previewSteps;
@@ -79,5 +117,35 @@ class Physics {
       }
     }
     return points;
+  }
+
+  /// Reflect the dot off a wall segment if it is within collision distance.
+  static void _reflectWall(DotState dot, Wall w) {
+    final abx = w.x2 - w.x1, aby = w.y2 - w.y1;
+    final ab2 = abx * abx + aby * aby;
+    if (ab2 < 0.001) return;
+
+    final t = ((dot.x - w.x1) * abx + (dot.y - w.y1) * aby) / ab2;
+    final tc = t.clamp(0.0, 1.0);
+    final cx = w.x1 + tc * abx;
+    final cy = w.y1 + tc * aby;
+
+    final dx = dot.x - cx;
+    final dy = dot.y - cy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    final hitDist = w.thickness / 2 + _dotRadius;
+
+    if (dist < hitDist && dist > 0.001) {
+      final nx = dx / dist;
+      final ny = dy / dist;
+      final vDotN = dot.vx * nx + dot.vy * ny;
+      if (vDotN < 0) {
+        dot.vx -= 2 * vDotN * nx;
+        dot.vy -= 2 * vDotN * ny;
+      }
+      // Nudge outside the wall
+      dot.x = cx + nx * (hitDist + 1);
+      dot.y = cy + ny * (hitDist + 1);
+    }
   }
 }
