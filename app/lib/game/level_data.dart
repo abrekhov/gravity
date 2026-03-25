@@ -12,6 +12,43 @@ class GravityBody {
   });
 }
 
+class BlackHole {
+  final double x, y, mass, radius;
+  const BlackHole({
+    required this.x,
+    required this.y,
+    required this.mass,
+    required this.radius,
+  });
+}
+
+class Wall {
+  final double x1, y1, x2, y2, thickness;
+  const Wall({
+    required this.x1,
+    required this.y1,
+    required this.x2,
+    required this.y2,
+    this.thickness = 6,
+  });
+}
+
+class AsteroidDef {
+  final double cx, cy;    // orbit center
+  final double orbitR;    // orbit radius in pixels
+  final double speed;     // rad/s (positive = CCW)
+  final double phase0;    // initial angle in radians
+  final double radius;    // collision radius
+  const AsteroidDef({
+    required this.cx,
+    required this.cy,
+    required this.orbitR,
+    required this.speed,
+    required this.phase0,
+    this.radius = 6,
+  });
+}
+
 class Zone {
   final double x, y, radius;
   const Zone({required this.x, required this.y, required this.radius});
@@ -25,6 +62,9 @@ class LevelData {
   final List<GravityBody> gravityBodies;
   final Zone launchZone;
   final Zone gateway;
+  final List<BlackHole> blackHoles;
+  final List<Wall> walls;
+  final List<AsteroidDef> asteroids;
   const LevelData({
     required this.id,
     required this.name,
@@ -33,11 +73,12 @@ class LevelData {
     required this.gravityBodies,
     required this.launchZone,
     required this.gateway,
+    this.blackHoles = const [],
+    this.walls = const [],
+    this.asteroids = const [],
   });
 }
 
-// ignore: non_constant_identifier_names
-Color _c(int rgb) => Color(0xFF000000 | rgb);
 
 const List<LevelData> kLevels = [
   // Level 1 — Tutorial: one planet
@@ -84,7 +125,7 @@ const List<LevelData> kLevels = [
     gateway: Zone(x: 1140, y: 120, radius: 32),
   ),
 
-  // Level 5 — Massive center + 2 moons, slingshot
+  // Level 5 — Massive center + 2 moons, slingshot; asteroids orbit the star
   LevelData(
     id: 5, name: 'The Slingshot', shots: 3, g: 120,
     gravityBodies: [
@@ -94,6 +135,11 @@ const List<LevelData> kLevels = [
     ],
     launchZone: Zone(x: 160, y: 360, radius: 40),
     gateway: Zone(x: 1120, y: 360, radius: 32),
+    asteroids: [
+      AsteroidDef(cx: 640, cy: 360, orbitR: 108, speed:  0.90, phase0: 0.5),
+      AsteroidDef(cx: 640, cy: 360, orbitR: 122, speed: -0.65, phase0: 2.1),
+      AsteroidDef(cx: 640, cy: 360, orbitR: 114, speed:  0.75, phase0: 4.3),
+    ],
   ),
 
   // Level 6 — Zigzag slalom
@@ -109,7 +155,8 @@ const List<LevelData> kLevels = [
     gateway: Zone(x: 1150, y: 360, radius: 30),
   ),
 
-  // Level 7 — Must loop around
+  // Level 7 — Must loop around; walls block the obvious direct path;
+  //           black hole pulls off-course shots; asteroids orbit the big planet
   LevelData(
     id: 7, name: 'Full Circle', shots: 3, g: 130,
     gravityBodies: [
@@ -118,6 +165,19 @@ const List<LevelData> kLevels = [
     ],
     launchZone: Zone(x: 150, y: 580, radius: 38),
     gateway: Zone(x: 200, y: 130, radius: 30),
+    blackHoles: [
+      BlackHole(x: 385, y: 185, mass: 30000, radius: 15),
+    ],
+    walls: [
+      // Horizontal bar — blocks the direct up-left shot
+      Wall(x1: 35, y1: 335, x2: 315, y2: 335, thickness: 7),
+      // Vertical bar — closes the upper-left corridor
+      Wall(x1: 295, y1: 55, x2: 295, y2: 340, thickness: 7),
+    ],
+    asteroids: [
+      AsteroidDef(cx: 640, cy: 360, orbitR: 118, speed:  0.80, phase0: 0.0),
+      AsteroidDef(cx: 640, cy: 360, orbitR: 130, speed: -0.55, phase0: 3.2),
+    ],
   ),
 
   // Level 8 — Binary star
@@ -132,7 +192,7 @@ const List<LevelData> kLevels = [
     gateway: Zone(x: 640, y: 70, radius: 30),
   ),
 
-  // Level 9 — Defensive ring
+  // Level 9 — Defensive ring + black hole at centre
   LevelData(
     id: 9, name: 'The Gauntlet', shots: 3, g: 140,
     gravityBodies: [
@@ -144,6 +204,9 @@ const List<LevelData> kLevels = [
     ],
     launchZone: Zone(x: 120, y: 360, radius: 36),
     gateway: Zone(x: 1160, y: 360, radius: 28),
+    blackHoles: [
+      BlackHole(x: 640, y: 360, mass: 26000, radius: 14),
+    ],
   ),
 
   // Level 10 — Maximum complexity: 10 bodies

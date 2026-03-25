@@ -57,6 +57,9 @@ class GravityGame extends FlameGame with DragCallbacks {
   Vector2 _dragCurrent = Vector2.zero();
   final _trail = <Vector2>[];
 
+  // Camera scroll
+  double _camTargetX = 0.0;
+
   // Components
   late final World _world;
   late final CameraComponent _camera;
@@ -66,6 +69,7 @@ class GravityGame extends FlameGame with DragCallbacks {
   _AimArrowComponent? _aimComp;
   _GatewayComponent? _gatewayComp;
   _LaunchZoneComponent? _lzComp;
+  final _asteroidComps = <_AsteroidComponent>[];
 
   // Prefs
   late SharedPreferences _prefs;
@@ -102,16 +106,38 @@ class GravityGame extends FlameGame with DragCallbacks {
     _dot = null;
     _trail.clear();
     _isDragging = false;
+    _camTargetX = 0.0;
+    _camera.viewfinder.position = Vector2.zero();
 
     for (final c in _levelComponents) {
       c.removeFromParent();
     }
     _levelComponents.clear();
+    _asteroidComps.clear();
 
     for (final body in activeLevel!.gravityBodies) {
       final p = _PlanetComponent(body);
       _levelComponents.add(p);
       _world.add(p);
+    }
+
+    for (final bh in activeLevel!.blackHoles) {
+      final c = _BlackHoleComponent(bh);
+      _levelComponents.add(c);
+      _world.add(c);
+    }
+
+    for (final wall in activeLevel!.walls) {
+      final c = _WallComponent(wall);
+      _levelComponents.add(c);
+      _world.add(c);
+    }
+
+    for (final ast in activeLevel!.asteroids) {
+      final c = _AsteroidComponent(ast);
+      _levelComponents.add(c);
+      _world.add(c);
+      _asteroidComps.add(c);
     }
 
     _lzComp = _LaunchZoneComponent(activeLevel!.launchZone);
@@ -151,8 +177,10 @@ class GravityGame extends FlameGame with DragCallbacks {
     overlays.remove('FailOverlay');
     for (final c in _levelComponents) c.removeFromParent();
     _levelComponents.clear();
+    _asteroidComps.clear();
     activeLevel = null;
     _dot = null;
+    _camera.viewfinder.position = Vector2.zero();
     overlays.add(showLevels ? 'LevelSelect' : 'MainMenu');
   }
 
@@ -161,6 +189,10 @@ class GravityGame extends FlameGame with DragCallbacks {
   @override
   void update(double dt) {
     super.update(dt);
+
+    // Smooth camera scroll
+    _updateCamera(dt);
+
     if (_phase != _Phase.flying || _dot == null || activeLevel == null) return;
 
     final cdt = dt.clamp(0.0, 0.05);
@@ -171,16 +203,31 @@ class GravityGame extends FlameGame with DragCallbacks {
     _checkCollisions();
   }
 
+  void _updateCamera(double dt) {
+    if (activeLevel == null) return;
+    if (_phase == _Phase.flying && _dot != null) {
+      _camTargetX = (_dot!.x - 640).clamp(0.0, 1280.0);
+    } else {
+      _camTargetX = (activeLevel!.launchZone.x - 640).clamp(0.0, 1280.0);
+    }
+    final cx = _camera.viewfinder.position.x;
+    _camera.viewfinder.position = Vector2(
+      cx + (_camTargetX - cx) * (1 - math.exp(-6 * dt)),
+      0,
+    );
+  }
+
   // ─── Input ───────────────────────────────────────────────────────────────
 
-  /// Convert canvas/screen coordinates to 1280×720 world coordinates.
+  /// Convert canvas/screen coordinates to world coordinates, accounting for
+  /// the current camera scroll offset.
   Vector2 _toWorld(Vector2 screenPos) {
     final scale = math.min(size.x / 1280, size.y / 720);
     final offsetX = (size.x - 1280 * scale) / 2;
     final offsetY = (size.y - 720 * scale) / 2;
     return Vector2(
-      (screenPos.x - offsetX) / scale,
-      (screenPos.y - offsetY) / scale,
+      (screenPos.x - offsetX) / scale + _camera.viewfinder.position.x,
+      (screenPos.y - offsetY) / scale + _camera.viewfinder.position.y,
     );
   }
 
@@ -194,6 +241,7 @@ class GravityGame extends FlameGame with DragCallbacks {
 
   @override
   void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
     if (_phase != _Phase.aiming || activeLevel == null) return;
     final pos = _toWorld(event.localPosition);
     final lz = activeLevel!.launchZone;
@@ -206,6 +254,7 @@ class GravityGame extends FlameGame with DragCallbacks {
 
   @override
   void onDragUpdate(DragUpdateEvent event) {
+    super.onDragUpdate(event);
     if (!_isDragging || activeLevel == null) return;
     _dragCurrent = _toWorld(event.localPosition);
     final vel = _dragToVelocity(_dragCurrent);
@@ -215,6 +264,7 @@ class GravityGame extends FlameGame with DragCallbacks {
 
   @override
   void onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
     if (!_isDragging || activeLevel == null) return;
     _isDragging = false;
     _trajComp?.clear();
@@ -226,6 +276,7 @@ class GravityGame extends FlameGame with DragCallbacks {
 
   @override
   void onDragCancel(DragCancelEvent event) {
+    super.onDragCancel(event);
     _isDragging = false;
     _trajComp?.clear();
     _aimComp?.clear();
@@ -264,8 +315,29 @@ class GravityGame extends FlameGame with DragCallbacks {
       }
     }
 
-    // Out of bounds
-    if (dot.x < -120 || dot.x > 1400 || dot.y < -120 || dot.y > 840) {
+    // Black hole collision
+    for (final bh in level.blackHoles) {
+      final d = math.sqrt((dot.x - bh.x) * (dot.x - bh.x) +
+          (dot.y - bh.y) * (dot.y - bh.y));
+      if (d < bh.radius * 1.1) {
+        _triggerFail();
+        return;
+      }
+    }
+
+    // Asteroid collision
+    for (final ast in _asteroidComps) {
+      final ax = ast.posX, ay = ast.posY;
+      final d = math.sqrt(
+          (dot.x - ax) * (dot.x - ax) + (dot.y - ay) * (dot.y - ay));
+      if (d < ast.def.radius + 5) {
+        _triggerFail();
+        return;
+      }
+    }
+
+    // Out of bounds (world is 2560 wide)
+    if (dot.x < -120 || dot.x > 2680 || dot.y < -120 || dot.y > 840) {
       _triggerFail();
     }
   }
@@ -325,20 +397,16 @@ class _Star {
 
 class _StarfieldComponent extends Component {
   final _stars = <_Star>[];
-  // Twinkling stars
-  final _bright = <_Star>[];
-  final _brightAlpha = <double>[];
-  final _brightPhase = <double>[];
-  final _brightSpeed = <double>[];
 
   @override
   Future<void> onLoad() async {
     final rng = math.Random(0x47524156);
-    for (int i = 0; i < 220; i++) {
-      final x = rng.nextDouble() * 1280;
+    // Cover the full 2560-wide world
+    for (int i = 0; i < 400; i++) {
+      final x = rng.nextDouble() * 2560;
       final y = rng.nextDouble() * 720;
-      final r = rng.nextDouble() < 0.15 ? 1.5 : 1.0;
-      final a = 0.12 + rng.nextDouble() * 0.43;
+      final r = rng.nextDouble() < 0.15 ? 0.8 : 0.5;
+      final a = 0.08 + rng.nextDouble() * 0.25;
       Color col = const Color(0xFFFFFFFF);
       if (rng.nextDouble() < 0.15) {
         col = rng.nextBool()
@@ -346,22 +414,6 @@ class _StarfieldComponent extends Component {
             : const Color(0xFFFFF0E8);
       }
       _stars.add(_Star(x, y, r, a, col));
-    }
-    for (int i = 0; i < 12; i++) {
-      final x = 60 + rng.nextDouble() * (1280 - 120);
-      final y = 60 + rng.nextDouble() * (720 - 120);
-      _bright.add(_Star(x, y, 1.5, 0.9, const Color(0xFFFFFFFF)));
-      _brightAlpha.add(0.9);
-      _brightPhase.add(rng.nextDouble() * math.pi * 2);
-      _brightSpeed.add(math.pi / (0.6 + rng.nextDouble() * 0.9)); // rad/s
-    }
-  }
-
-  @override
-  void update(double dt) {
-    for (int i = 0; i < _bright.length; i++) {
-      _brightPhase[i] += _brightSpeed[i] * dt;
-      _brightAlpha[i] = 0.1 + 0.8 * (math.sin(_brightPhase[i]) * 0.5 + 0.5);
     }
   }
 
@@ -372,13 +424,6 @@ class _StarfieldComponent extends Component {
         Offset(s.x, s.y),
         s.r,
         Paint()..color = s.color.withOpacity(s.a),
-      );
-    }
-    for (int i = 0; i < _bright.length; i++) {
-      canvas.drawCircle(
-        Offset(_bright[i].x, _bright[i].y),
-        1.5,
-        Paint()..color = const Color(0xFFFFFFFF).withOpacity(_brightAlpha[i]),
       );
     }
   }
@@ -412,11 +457,145 @@ class _PlanetComponent extends Component {
   }
 }
 
+// ─── Black Hole ───────────────────────────────────────────────────────────────
+
+class _BlackHoleComponent extends Component {
+  final BlackHole bh;
+  _BlackHoleComponent(this.bh) : super(priority: 1);
+
+  @override
+  void render(Canvas canvas) {
+    final x = bh.x, y = bh.y, r = bh.radius;
+
+    // Gravitational lensing glow (subtle purple)
+    for (int i = 5; i >= 1; i--) {
+      canvas.drawCircle(
+        Offset(x, y),
+        r + i * 9,
+        Paint()..color = const Color(0xFF5533BB).withOpacity(0.025 * (6 - i)),
+      );
+    }
+
+    // Outer accretion disk
+    canvas.drawCircle(
+      Offset(x, y),
+      r + 5,
+      Paint()
+        ..color = const Color(0xFFFF7700).withOpacity(0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0,
+    );
+    // Inner hot ring
+    canvas.drawCircle(
+      Offset(x, y),
+      r + 2,
+      Paint()
+        ..color = const Color(0xFFFFDD88).withOpacity(0.6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    // Completely black core
+    canvas.drawCircle(
+      Offset(x, y),
+      r,
+      Paint()..color = const Color(0xFF000000),
+    );
+  }
+}
+
+// ─── Wall ────────────────────────────────────────────────────────────────────
+
+class _WallComponent extends Component {
+  final Wall wall;
+  _WallComponent(this.wall) : super(priority: 1);
+
+  @override
+  void render(Canvas canvas) {
+    final p1 = Offset(wall.x1, wall.y1);
+    final p2 = Offset(wall.x2, wall.y2);
+
+    // Outer glow
+    canvas.drawLine(
+      p1, p2,
+      Paint()
+        ..color = const Color(0xFF4466BB).withOpacity(0.20)
+        ..strokeWidth = wall.thickness + 10
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawLine(
+      p1, p2,
+      Paint()
+        ..color = const Color(0xFF6688CC).withOpacity(0.30)
+        ..strokeWidth = wall.thickness + 5
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Core
+    canvas.drawLine(
+      p1, p2,
+      Paint()
+        ..color = const Color(0xFFAABBDD).withOpacity(0.90)
+        ..strokeWidth = wall.thickness
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+}
+
+// ─── Asteroid ────────────────────────────────────────────────────────────────
+
+class _AsteroidComponent extends Component {
+  final AsteroidDef def;
+  double _angle;
+
+  _AsteroidComponent(this.def)
+      : _angle = def.phase0,
+        super(priority: 6);
+
+  double get posX => def.cx + def.orbitR * math.cos(_angle);
+  double get posY => def.cy + def.orbitR * math.sin(_angle);
+
+  @override
+  void update(double dt) {
+    _angle += def.speed * dt;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final x = posX, y = posY, r = def.radius;
+
+    // Irregular rock polygon
+    const sides = 7;
+    const bumps = <double>[0.0, 0.35, -0.25, 0.4, -0.15, 0.3, -0.2];
+    final path = Path();
+    for (int i = 0; i < sides; i++) {
+      final a = (i / sides) * math.pi * 2;
+      final rr = r + bumps[i];
+      final px = x + rr * math.cos(a);
+      final py = y + rr * math.sin(a);
+      if (i == 0) {
+        path.moveTo(px, py);
+      } else {
+        path.lineTo(px, py);
+      }
+    }
+    path.close();
+
+    canvas.drawPath(path, Paint()..color = const Color(0xFF887766));
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xFFFFFFFF).withOpacity(0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+  }
+}
+
 // ─── Launch Zone ─────────────────────────────────────────────────────────────
 
 class _LaunchZoneComponent extends Component {
   final Zone config;
-  double _alpha = 1.0;
   bool _dimmed = false;
   double _pulsePhase = 0;
 
@@ -535,12 +714,13 @@ class _GatewayComponent extends Component {
   }
 }
 
-// ─── Dot ─────────────────────────────────────────────────────────────────────
+// ─── Dot / Starship ──────────────────────────────────────────────────────────
 
 class _DotComponent extends Component {
   DotState? _dot;
   List<Vector2> _trail = [];
   bool _visible = false;
+  double _lastAngle = 0.0;
 
   _DotComponent() : super(priority: 10);
 
@@ -548,6 +728,10 @@ class _DotComponent extends Component {
     _dot = dot;
     _trail = trail;
     _visible = true;
+    final vx = dot.vx, vy = dot.vy;
+    if (vx * vx + vy * vy > 0.01) {
+      _lastAngle = math.atan2(vy, vx);
+    }
   }
 
   void hide() => _visible = false;
@@ -556,28 +740,55 @@ class _DotComponent extends Component {
   void render(Canvas canvas) {
     if (!_visible || _dot == null) return;
 
-    // Trail
+    // Trail — small fading circles
     final pts = _trail;
     final start = math.max(0, pts.length - 35);
     for (int i = start; i < pts.length; i++) {
       final t = (i - start) / (pts.length - start);
-      final alpha = t * 0.3;
-      final sz = 1 + t * 1.5;
       canvas.drawCircle(
         Offset(pts[i].x, pts[i].y),
-        sz,
-        Paint()..color = const Color(0xFFAABBDD).withOpacity(alpha),
+        0.8 + t * 1.2,
+        Paint()..color = const Color(0xFFAABBDD).withOpacity(t * 0.28),
       );
     }
 
-    // Probe layers
     final x = _dot!.x, y = _dot!.y;
-    canvas.drawCircle(Offset(x, y), 9,
-        Paint()..color = const Color(0xFF6688BB).withOpacity(0.2));
-    canvas.drawCircle(Offset(x, y), 5,
-        Paint()..color = const Color(0xFFDDEEFF).withOpacity(0.75));
-    canvas.drawCircle(Offset(x, y), 3,
-        Paint()..color = const Color(0xFFFFFFFF));
+
+    canvas.save();
+    canvas.translate(x, y);
+    canvas.rotate(_lastAngle);
+
+    // Engine exhaust glow
+    canvas.drawCircle(Offset(-5, 0), 5,
+        Paint()..color = const Color(0xFF4466FF).withOpacity(0.45));
+    canvas.drawCircle(Offset(-5, 0), 3,
+        Paint()..color = const Color(0xFFAABBFF).withOpacity(0.75));
+
+    // Wing fins
+    final wings = Path()
+      ..moveTo(-1, 0)
+      ..lineTo(-7, -6)
+      ..lineTo(-8, -3.5)
+      ..lineTo(-3, 0)
+      ..lineTo(-8, 3.5)
+      ..lineTo(-7, 6)
+      ..close();
+    canvas.drawPath(wings, Paint()..color = const Color(0xFF5566AA));
+
+    // Main hull
+    final hull = Path()
+      ..moveTo(11, 0)
+      ..lineTo(-4, -4)
+      ..lineTo(-2, 0)
+      ..lineTo(-4, 4)
+      ..close();
+    canvas.drawPath(hull, Paint()..color = const Color(0xFFCCDDFF));
+
+    // Cockpit shine
+    canvas.drawCircle(Offset(4, -1), 2,
+        Paint()..color = const Color(0xFFFFFFFF).withOpacity(0.55));
+
+    canvas.restore();
   }
 }
 
