@@ -9,8 +9,4 @@ if (!window._flutter) {
 _flutter.buildConfig = {"engineRevision":"235db911ba279722f5e685f38b0ed30fa7e8570a","builds":[{"compileTarget":"dart2js","renderer":"html","mainJsPath":"main.dart.js"}]};
 
 
-_flutter.loader.load({
-  serviceWorkerSettings: {
-    serviceWorkerVersion: "848379012"
-  }
-});
+_flutter.loader.load({});
