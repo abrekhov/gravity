@@ -18,7 +18,10 @@ class Physics {
   static const double velocityScale = 3.2;
   static const double maxDrag = 160.0;
   static const double minLaunchMag = 6.0;
-  static const double _previewDt = 1.0 / 60.0;
+  /// Fixed physics timestep — shared by game loop and trajectory preview so
+  /// the preview exactly predicts the actual shot at any display refresh rate.
+  static const double fixedDt = 1.0 / 60.0;
+  static const double _previewDt = fixedDt;
   static const int _previewSteps = 220;
 
   // Dot collision radius used for wall reflection

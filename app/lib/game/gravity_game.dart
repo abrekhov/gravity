@@ -60,6 +60,10 @@ class GravityGame extends FlameGame with DragCallbacks {
   // Camera scroll
   double _camTargetX = 0.0;
 
+  // Fixed-timestep accumulator — ensures physics always steps at Physics.fixedDt
+  // (1/60 s) regardless of display refresh rate, so trajectory exactly matches.
+  double _physicsAccum = 0.0;
+
   // Components
   late final World _world;
   late final CameraComponent _camera;
@@ -107,6 +111,7 @@ class GravityGame extends FlameGame with DragCallbacks {
     _trail.clear();
     _isDragging = false;
     _camTargetX = 0.0;
+    _physicsAccum = 0.0;
     _camera.viewfinder.position = Vector2.zero();
 
     for (final c in _levelComponents) {
@@ -195,12 +200,19 @@ class GravityGame extends FlameGame with DragCallbacks {
 
     if (_phase != _Phase.flying || _dot == null || activeLevel == null) return;
 
-    final cdt = dt.clamp(0.0, 0.05);
-    Physics.step(_dot!, activeLevel!, cdt);
-    _trail.add(Vector2(_dot!.x, _dot!.y));
-    if (_trail.length > 60) _trail.removeAt(0);
+    // Fixed timestep: accumulate real time and consume in Physics.fixedDt chunks.
+    // This ensures physics always uses the same step size as the trajectory
+    // preview, so the shot follows the predicted path at any display refresh rate.
+    _physicsAccum += dt.clamp(0.0, 0.10); // 100ms cap prevents spiral-of-death
+    while (_physicsAccum >= Physics.fixedDt) {
+      Physics.step(_dot!, activeLevel!, Physics.fixedDt);
+      _physicsAccum -= Physics.fixedDt;
+      _trail.add(Vector2(_dot!.x, _dot!.y));
+      if (_trail.length > 60) _trail.removeAt(0);
+      _checkCollisions();
+      if (_phase != _Phase.flying) break;
+    }
     _dotComp?.updateState(_dot!, List.of(_trail));
-    _checkCollisions();
   }
 
   void _updateCamera(double dt) {
@@ -379,6 +391,7 @@ class GravityGame extends FlameGame with DragCallbacks {
     _phase = _Phase.aiming;
     _dot = null;
     _trail.clear();
+    _physicsAccum = 0.0;
     _lzComp?.setDimmed(false);
   }
 }
