@@ -24,22 +24,15 @@ class Physics {
   // Dot collision radius used for wall reflection
   static const double _dotRadius = 5.0;
 
-  // Number of sub-steps per integration call — keeps Euler stable near
-  // strong gravity sources (black holes with mass 26 000+).
-  static const int _subSteps = 8;
-
-  /// One integration step, internally sub-stepped for stability.
+  /// One integration step (single Euler, matches _previewDt exactly).
   static void step(DotState dot, LevelData level, double dt) {
-    final subDt = dt / _subSteps;
-    for (int s = 0; s < _subSteps; s++) {
-      _applyGravity(dot, level, subDt);
-    }
+    _applyGravity(dot, level, dt);
     for (final wall in level.walls) {
       _reflectWall(dot, wall);
     }
   }
 
-  /// Compute gravity from all bodies & black holes and integrate one sub-step.
+  /// Compute gravity from all bodies & black holes and integrate.
   static void _applyGravity(DotState dot, LevelData level, double dt) {
     double ax = 0, ay = 0;
 
@@ -48,6 +41,7 @@ class Physics {
       final dy = body.y - dot.y;
       final r = math.sqrt(dx * dx + dy * dy);
       if (r < 0.001) continue;
+      // softR prevents singularity if dot passes inside body
       final softR = math.max(r, body.radius * 0.5);
       final acc = gravityScale * level.g * body.mass / (softR * softR);
       ax += acc * (dx / r);
@@ -59,7 +53,10 @@ class Physics {
       final dy = bh.y - dot.y;
       final r = math.sqrt(dx * dx + dy * dy);
       if (r < 0.001) continue;
-      final softR = math.max(r, bh.radius * 0.5);
+      // Black holes have extreme mass; cap near-field gravity so single-step
+      // Euler stays numerically stable. softR = 8*radius keeps Δx < 10px/frame
+      // at minimum approach distance (r = radius * 1.1).
+      final softR = math.max(r, bh.radius * 8.0);
       final acc = gravityScale * level.g * bh.mass / (softR * softR);
       ax += acc * (dx / r);
       ay += acc * (dy / r);
@@ -71,18 +68,15 @@ class Physics {
     dot.y += dot.vy * dt;
   }
 
-  /// Simulate a trajectory preview — mirrors step() exactly with sub-stepping.
+  /// Simulate a trajectory preview — mirrors step() then _checkCollisions() exactly.
   static List<TrajectoryPoint> simulateTrajectory(
       double launchVx, double launchVy, LevelData level) {
     final points = <TrajectoryPoint>[];
     final sim = DotState(level.launchZone.x, level.launchZone.y, launchVx, launchVy);
-    final subDt = _previewDt / _subSteps;
 
     for (int i = 0; i < _previewSteps; i++) {
-      // 1. Sub-stepped gravity — identical to step()
-      for (int s = 0; s < _subSteps; s++) {
-        _applyGravity(sim, level, subDt);
-      }
+      // 1. Gravity + integrate — identical to step()
+      _applyGravity(sim, level, _previewDt);
 
       // 2. Wall reflection — matches step()
       for (final wall in level.walls) {
