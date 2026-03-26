@@ -405,8 +405,8 @@ class _StarfieldComponent extends Component {
     for (int i = 0; i < 400; i++) {
       final x = rng.nextDouble() * 2560;
       final y = rng.nextDouble() * 720;
-      final r = rng.nextDouble() < 0.15 ? 0.8 : 0.5;
-      final a = 0.08 + rng.nextDouble() * 0.25;
+      final r = rng.nextDouble() < 0.12 ? 0.5 : 0.3;
+      final a = 0.06 + rng.nextDouble() * 0.18;
       Color col = const Color(0xFFFFFFFF);
       if (rng.nextDouble() < 0.15) {
         col = rng.nextBool()
@@ -435,15 +435,43 @@ class _PlanetComponent extends Component {
   final GravityBody body;
   _PlanetComponent(this.body) : super(priority: 1);
 
+  /// Map mass → color on a cool-to-hot gradient.
+  /// Low mass (≤1200) = dim blue, high mass (≥8000) = bright orange-red.
+  static Color _massColor(double mass) {
+    // Normalize mass to 0..1 range (1200..8000 mapped to 0..1)
+    final t = ((mass - 1200) / 6800).clamp(0.0, 1.0);
+    // Gradient stops: deep-blue → cyan → white → yellow → orange → red
+    if (t < 0.2) {
+      final s = t / 0.2;
+      return Color.fromRGBO(
+        (40 + 30 * s).round(), (60 + 140 * s).round(), (180 + 75 * s).round(), 1);
+    } else if (t < 0.4) {
+      final s = (t - 0.2) / 0.2;
+      return Color.fromRGBO(
+        (70 + 185 * s).round(), (200 + 55 * s).round(), (255 - 30 * s).round(), 1);
+    } else if (t < 0.6) {
+      final s = (t - 0.4) / 0.2;
+      return Color.fromRGBO(255, (255 - 35 * s).round(), (225 - 145 * s).round(), 1);
+    } else if (t < 0.8) {
+      final s = (t - 0.6) / 0.2;
+      return Color.fromRGBO(255, (220 - 100 * s).round(), (80 - 40 * s).round(), 1);
+    } else {
+      final s = (t - 0.8) / 0.2;
+      return Color.fromRGBO(255, (120 - 70 * s).round(), (40 - 20 * s).round(), 1);
+    }
+  }
+
   @override
   void render(Canvas canvas) {
-    final c = body.color;
+    final c = _massColor(body.mass);
+    // Glow intensity scales with mass (heavier = more glow)
+    final glowStrength = ((body.mass - 1200) / 6800).clamp(0.15, 1.0);
     // 5 glow layers
     for (int i = 5; i >= 1; i--) {
       canvas.drawCircle(
         Offset(body.x, body.y),
         body.radius + i * 7,
-        Paint()..color = c.withOpacity(0.055 * (6 - i)),
+        Paint()..color = c.withOpacity(0.055 * (6 - i) * glowStrength),
       );
     }
     // Solid core
