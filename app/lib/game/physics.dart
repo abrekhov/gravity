@@ -58,7 +58,7 @@ class Physics {
     }
   }
 
-  /// Simulate a trajectory preview.
+  /// Simulate a trajectory preview — mirrors step() then _checkCollisions() exactly.
   static List<TrajectoryPoint> simulateTrajectory(
       double launchVx, double launchVy, LevelData level) {
     final points = <TrajectoryPoint>[];
@@ -67,48 +67,69 @@ class Physics {
     double vx = launchVx, vy = launchVy;
 
     for (int i = 0; i < _previewSteps; i++) {
+      // 1. Gravity — identical to step() including softR
       double ax = 0, ay = 0;
-
       for (final body in level.gravityBodies) {
         final dx = body.x - px;
         final dy = body.y - py;
         final r = math.sqrt(dx * dx + dy * dy);
-        if (r < body.radius) {
-          points.add(TrajectoryPoint(px, py, 4, 0.8, isImpact: true));
-          return points;
-        }
-        final acc = gravityScale * level.g * body.mass / (r * r);
+        if (r < 0.001) continue;
+        final softR = math.max(r, body.radius * 0.5);
+        final acc = gravityScale * level.g * body.mass / (softR * softR);
         ax += acc * (dx / r);
         ay += acc * (dy / r);
       }
-
       for (final bh in level.blackHoles) {
         final dx = bh.x - px;
         final dy = bh.y - py;
         final r = math.sqrt(dx * dx + dy * dy);
-        if (r < bh.radius) {
-          points.add(TrajectoryPoint(px, py, 4, 0.8, isImpact: true));
-          return points;
-        }
-        final acc = gravityScale * level.g * bh.mass / (r * r);
+        if (r < 0.001) continue;
+        final softR = math.max(r, bh.radius * 0.5);
+        final acc = gravityScale * level.g * bh.mass / (softR * softR);
         ax += acc * (dx / r);
         ay += acc * (dy / r);
       }
 
+      // 2. Integrate — matches step()
       vx += ax * _previewDt;
       vy += ay * _previewDt;
       px += vx * _previewDt;
       py += vy * _previewDt;
 
-      // Reflect off walls in the preview
+      // 3. Wall reflection — matches step()
       final tmp = DotState(px, py, vx, vy);
       for (final wall in level.walls) {
         _reflectWall(tmp, wall);
       }
       px = tmp.x; py = tmp.y; vx = tmp.vx; vy = tmp.vy;
 
+      // 4. Collision — same thresholds as _checkCollisions()
+      bool hit = false;
+      for (final body in level.gravityBodies) {
+        final dx = body.x - px, dy = body.y - py;
+        if (dx * dx + dy * dy < (body.radius * 1.05) * (body.radius * 1.05)) {
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) {
+        for (final bh in level.blackHoles) {
+          final dx = bh.x - px, dy = bh.y - py;
+          if (dx * dx + dy * dy < (bh.radius * 1.1) * (bh.radius * 1.1)) {
+            hit = true;
+            break;
+          }
+        }
+      }
+      if (hit) {
+        points.add(TrajectoryPoint(px, py, 4, 0.8, isImpact: true));
+        return points;
+      }
+
+      // 5. Out of bounds
       if (px < -120 || px > 2680 || py < -120 || py > 840) break;
 
+      // 6. Record point
       if (i % 3 == 0) {
         final t = i / _previewSteps;
         final alpha = 0.72 + (0.08 - 0.72) * t;
