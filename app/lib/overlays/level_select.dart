@@ -102,18 +102,20 @@ class _LevelGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 14,
-      runSpacing: 14,
-      alignment: WrapAlignment.center,
-      children: kLevels.map((level) {
-        final unlocked = level.id <= game.unlockedLevelId;
-        return _LevelCard(
-          level: level,
-          unlocked: unlocked,
-          onTap: unlocked ? () => game.startLevel(level.id) : null,
-        );
-      }).toList(),
+    return SingleChildScrollView(
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        alignment: WrapAlignment.center,
+        children: kLevels.map((level) {
+          final unlocked = level.id <= game.unlockedLevelId;
+          return _LevelCard(
+            level: level,
+            unlocked: unlocked,
+            onTap: unlocked ? () => game.startLevel(level.id) : null,
+          );
+        }).toList(),
+      ),
     );
   }
 }
@@ -167,8 +169,8 @@ class _LevelCardState extends State<_LevelCard> {
             ? SystemMouseCursors.click
             : SystemMouseCursors.basic,
         child: Container(
-          width: 175,
-          height: 200,
+          width: 110,
+          height: 120,
           decoration: BoxDecoration(
             color: fillColor.withOpacity(isUnlocked ? 0.9 : 0.6),
             border: Border.all(
@@ -184,34 +186,35 @@ class _LevelCardState extends State<_LevelCard> {
               Text(
                 widget.level.id.toString().padLeft(2, '0'),
                 style: TextStyle(
-                  fontSize: 34,
+                  fontSize: 22,
                   color: isUnlocked
                       ? const Color(0xFFFFFFFF)
                       : const Color(0xFF2D4055),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 3),
               // Level name
               Text(
                 widget.level.name,
                 style: TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: 11,
+                  fontSize: 9,
                   color: isUnlocked
                       ? const Color(0xFF7A8FA8)
                       : const Color(0xFF2D4055),
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 6),
               // Shot dots
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: List.generate(widget.level.shots, (i) {
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
                     child: Container(
-                      width: 8,
-                      height: 8,
+                      width: 6,
+                      height: 6,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: isUnlocked
@@ -223,10 +226,10 @@ class _LevelCardState extends State<_LevelCard> {
                 }),
               ),
               if (!isUnlocked) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 6),
                 const Text(
                   '🔒',
-                  style: TextStyle(fontSize: 18),
+                  style: TextStyle(fontSize: 12),
                 ),
               ],
             ],
