@@ -22,7 +22,7 @@ class Physics {
   /// the preview exactly predicts the actual shot at any display refresh rate.
   static const double fixedDt = 1.0 / 60.0;
   static const double _previewDt = fixedDt;
-  static const int _previewSteps = 220;
+  static const int _previewSteps = 380;
 
   // Dot collision radius used for wall reflection
   static const double _dotRadius = 5.0;

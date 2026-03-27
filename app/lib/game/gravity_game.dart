@@ -279,10 +279,14 @@ class GravityGame extends FlameGame with DragCallbacks {
     super.onDragEnd(event);
     if (!_isDragging || activeLevel == null) return;
     _isDragging = false;
-    _trajComp?.clear();
     _aimComp?.clear();
     final raw = _dragCurrent - _dragStart;
-    if (raw.length < Physics.minLaunchMag) return;
+    if (raw.length < Physics.minLaunchMag) {
+      _trajComp?.clear();
+      return;
+    }
+    // Keep trajectory visible during flight so players can verify ship follows it.
+    // It will be cleared when next aiming starts or on reset.
     _launch(_dragToVelocity(_dragCurrent));
   }
 
@@ -392,6 +396,7 @@ class GravityGame extends FlameGame with DragCallbacks {
     _dot = null;
     _trail.clear();
     _physicsAccum = 0.0;
+    _trajComp?.clear();  // clear previous shot's trajectory
     _lzComp?.setDimmed(false);
   }
 }
