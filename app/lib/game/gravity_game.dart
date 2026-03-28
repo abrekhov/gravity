@@ -74,6 +74,7 @@ class GravityGame extends FlameGame with DragCallbacks {
   _GatewayComponent? _gatewayComp;
   _LaunchZoneComponent? _lzComp;
   final _asteroidComps = <_AsteroidComponent>[];
+  _ExplosionComponent? _explosionComp;
 
   // Prefs
   late SharedPreferences _prefs;
@@ -379,7 +380,14 @@ class GravityGame extends FlameGame with DragCallbacks {
     _phase = _Phase.dead;
     _dotComp?.hide();
 
-    Future.delayed(const Duration(milliseconds: 420), () {
+    // Spawn explosion at the crash point
+    if (_dot != null) {
+      _explosionComp?.removeFromParent();
+      _explosionComp = _ExplosionComponent(_dot!.x, _dot!.y);
+      _world.add(_explosionComp!);
+    }
+
+    Future.delayed(const Duration(milliseconds: 600), () {
       _shotsRemaining--;
       if (_shotsRemaining <= 0) {
         _eventCtrl.add(LevelFailed());
@@ -930,4 +938,98 @@ class _AimArrowComponent extends Component {
         ..strokeWidth = 1.5,
     );
   }
+}
+
+// ─── Explosion ────────────────────────────────────────────────────────────────
+
+class _ExplosionComponent extends Component {
+  final double cx, cy;
+  double _t = 0.0; // 0..1
+  static const double _duration = 0.55; // seconds
+
+  static final _rng = math.Random();
+
+  // Pre-generated sparks: [angle, speed, size]
+  late final List<_Spark> _sparks;
+
+  _ExplosionComponent(this.cx, this.cy) : super(priority: 20) {
+    _sparks = List.generate(18, (_) {
+      final angle = _rng.nextDouble() * math.pi * 2;
+      final speed = 60 + _rng.nextDouble() * 120;
+      final size = 1.5 + _rng.nextDouble() * 2.5;
+      return _Spark(angle, speed, size);
+    });
+  }
+
+  @override
+  void update(double dt) {
+    _t += dt / _duration;
+    if (_t >= 1.0) removeFromParent();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (_t >= 1.0) return;
+    final t = _t.clamp(0.0, 1.0);
+
+    // 1. Flash: bright white core that fades quickly
+    if (t < 0.25) {
+      final ft = 1.0 - (t / 0.25);
+      canvas.drawCircle(
+        Offset(cx, cy), 18 * (1 - t * 0.5),
+        Paint()..color = const Color(0xFFFFFFFF).withOpacity(ft * 0.9),
+      );
+    }
+
+    // 2. Expanding orange-red ring
+    final ring1R = 6 + t * 44;
+    final ring1A = (1 - t) * 0.85;
+    canvas.drawCircle(
+      Offset(cx, cy), ring1R,
+      Paint()
+        ..color = const Color(0xFFFF6622).withOpacity(ring1A)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5 * (1 - t * 0.7),
+    );
+
+    // 3. Second ring (delayed, blue-white)
+    if (t > 0.1) {
+      final t2 = ((t - 0.1) / 0.9).clamp(0.0, 1.0);
+      final ring2R = 4 + t2 * 30;
+      canvas.drawCircle(
+        Offset(cx, cy), ring2R,
+        Paint()
+          ..color = const Color(0xFFAADDFF).withOpacity((1 - t2) * 0.6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
+
+    // 4. Sparks
+    for (final spark in _sparks) {
+      final dist = spark.speed * t * _duration;
+      final sx = cx + math.cos(spark.angle) * dist;
+      final sy = cy + math.sin(spark.angle) * dist;
+      final alpha = (1 - t) * 0.9;
+      final sz = spark.size * (1 - t * 0.6);
+      // Color shifts orange → red as t increases
+      final r = 255;
+      final g = ((1 - t) * 160).round().clamp(0, 255);
+      canvas.drawCircle(
+        Offset(sx, sy), sz,
+        Paint()..color = Color.fromRGBO(r, g, 30, alpha),
+      );
+    }
+
+    // 5. Central glow that lingers
+    canvas.drawCircle(
+      Offset(cx, cy), 8 + t * 6,
+      Paint()..color = const Color(0xFFFF8833).withOpacity((1 - t) * 0.5),
+    );
+  }
+}
+
+class _Spark {
+  final double angle, speed, size;
+  _Spark(this.angle, this.speed, this.size);
 }
