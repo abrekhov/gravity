@@ -42,9 +42,8 @@ platform :ios do
       decrypted_p12 = "#{certs_dir}/cert.p12"
       File.open(decrypted_p12, "wb") do |f|
         f.write(enc.decrypt(
-          file_name: File.basename(encrypted_p12),
+          file_path: encrypted_p12,
           password:  match_password,
-          data:      File.binread(encrypted_p12),
         ))
       end
 
@@ -62,9 +61,8 @@ platform :ios do
         FileUtils.mkdir_p(pp_dir)
         File.open("#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision", "wb") do |f|
           f.write(enc.decrypt(
-            file_name: File.basename(encrypted_pp),
+            file_path: encrypted_pp,
             password:  match_password,
-            data:      File.binread(encrypted_pp),
           ))
         end
       end
