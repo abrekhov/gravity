@@ -24,7 +24,7 @@ platform :ios do
 
     # Build the IPA
     build_app(
-      workspace: "Runner.xcworkspace",
+      workspace: "ios/Runner.xcworkspace",
       scheme: "Runner",
       export_method: "app-store",
       export_options: {
