@@ -1,0 +1,43 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Push a new beta build to TestFlight"
+  lane :beta do
+    setup_ci if ENV["CI"]
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    # Sync certificates & provisioning profiles from private certs repo
+    match(
+      type: "appstore",
+      readonly: is_ci,
+      api_key: api_key,
+      git_url: ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64(
+        "#{ENV["MATCH_GIT_USER"]}:#{ENV["MATCH_GIT_TOKEN"]}"
+      ),
+    )
+
+    # Build the IPA
+    build_app(
+      workspace: "Runner.xcworkspace",
+      scheme: "Runner",
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          "com.gravity.gravityGame" => "match AppStore com.gravity.gravityGame",
+        },
+      },
+    )
+
+    # Upload to TestFlight (don't wait for processing — saves CI minutes)
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+end

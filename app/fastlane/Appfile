@@ -1,0 +1,4 @@
+app_identifier "com.gravity.gravityGame"
+apple_id ENV["APPLE_ID"] # your Apple ID email, set as GitHub secret
+itc_team_id ENV["ITC_TEAM_ID"] # leave blank if you have only one team
+team_id ENV["TEAM_ID"]       # leave blank if you have only one team
