@@ -44,17 +44,22 @@ platform :ios do
       enc.decrypt(file_path: decrypted_p12, password: match_password)
       UI.message("Decrypted .p12 size: #{File.size(decrypted_p12)} bytes")
 
-      import_certificate(
-        certificate_path:     decrypted_p12,
-        certificate_password: match_password,
-        keychain_name:        "fastlane_tmp_keychain",
-        keychain_password:    "",
-      )
+      # Write password to a temp file so the shell command won't break on
+      # special characters.
+      pass_file = "#{certs_dir}/p12pass.txt"
+      File.write(pass_file, match_password.to_s)
+
+      # Check the .p12 structure with openssl before attempting import.
+      sh("openssl pkcs12 -in #{decrypted_p12.shellescape} -passin file:#{pass_file.shellescape} -noout -info 2>&1 || echo '[WARN] openssl p12 check failed — wrong password or no private key'")
+
+      # Import using a direct security import command (more transparent than
+      # the import_certificate action).
+      keychain_db = File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db")
+      sh("security import #{decrypted_p12.shellescape} -k #{keychain_db.shellescape} -P #{match_password.to_s.shellescape} -A -T /usr/bin/codesign -T /usr/bin/security 2>&1 && echo 'security import OK' || echo '[WARN] security import exited non-zero'")
 
       # Grant codesign access to all private keys in the keychain.
-      # Without this the key exists but isn't accessible for signing.
-      sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k '' ~/Library/Keychains/fastlane_tmp_keychain-db 2>&1 || true")
-      sh("echo '-- Identities in signing keychain:' && security find-identity -v -p codesigning ~/Library/Keychains/fastlane_tmp_keychain-db 2>&1 || true")
+      sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k '' #{keychain_db.shellescape} 2>&1 || true")
+      sh("echo '-- Identities in signing keychain:' && security find-identity -v -p codesigning #{keychain_db.shellescape} 2>&1 || true")
 
       # Decrypt and install the provisioning profile.
       encrypted_pp = Dir.glob("#{certs_dir}/profiles/appstore/*.mobileprovision").first
