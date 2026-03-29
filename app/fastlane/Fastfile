@@ -3,7 +3,20 @@ default_platform(:ios)
 platform :ios do
   desc "Push a new beta build to TestFlight"
   lane :beta do
-    setup_ci if ENV["CI"]
+    # On CI: create a fresh unlocked keychain so the .p12 private key can be
+    # imported. Using create_keychain instead of setup_ci gives us an explicit
+    # unlock + add_to_search_list, which avoids "SecItemCopyMatching: item not
+    # found" when match tries to set the key partition list after import.
+    if is_ci
+      create_keychain(
+        name: "fastlane_tmp_keychain",
+        password: "",
+        default_keychain: true,
+        unlock: true,
+        timeout: 3600,
+        add_to_search_list: true,
+      )
+    end
 
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
@@ -12,8 +25,6 @@ platform :ios do
     )
 
     # Sync certificates & provisioning profiles from private certs repo.
-    # On CI, setup_ci creates 'fastlane_tmp_keychain' with empty password —
-    # pass that explicitly so match imports the cert into the right keychain.
     match(
       type: "appstore",
       readonly: is_ci,
