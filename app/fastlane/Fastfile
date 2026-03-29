@@ -28,6 +28,7 @@ platform :ios do
     match(
       type: "appstore",
       readonly: false,
+      force: true,
       api_key: api_key,
       git_url: ENV["MATCH_GIT_URL"],
       git_basic_authorization: Base64.strict_encode64(
