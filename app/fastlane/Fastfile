@@ -20,10 +20,9 @@ platform :ios do
 
       # -------------------------------------------------------------------
       # Step 2: Clone the match certs repo and decrypt+import manually.
-      # match's built-in `security import` call silently drops the private
-      # key on some CI runners (SecItemCopyMatching fails). Instead we use
-      # match's own Ruby encryption class to decrypt, then import with the
-      # Fastlane `import_certificate` action which is more reliable.
+      # match's built-in `security import` silently drops the private key
+      # on some CI runners. We use match's own Ruby encryption class to
+      # decrypt in-place, then import with import_certificate.
       # -------------------------------------------------------------------
       match_user     = ENV["MATCH_GIT_USER"]
       match_token    = ENV["MATCH_GIT_TOKEN"]
@@ -33,16 +32,17 @@ platform :ios do
       sh("git clone 'https://#{match_user}:#{match_token}@github.com/abrekhov/gravity-certificates.git' '#{certs_dir}' --depth 1")
 
       # Decrypt .p12 using match's own encryption library.
+      # decrypt() is in-place: copy first, then decrypt the copy.
       require 'match'
       enc = Match::Encryption::MatchFileEncryption.new
 
       encrypted_p12 = Dir.glob("#{certs_dir}/certs/distribution/*.p12").first
       UI.user_error!("No .p12 found in certs repo") unless encrypted_p12
 
-      # decrypt() decrypts in-place: copy first, then call decrypt on the copy.
       decrypted_p12 = "#{certs_dir}/cert.p12"
       FileUtils.cp(encrypted_p12, decrypted_p12)
       enc.decrypt(file_path: decrypted_p12, password: match_password)
+      UI.message("Decrypted .p12 size: #{File.size(decrypted_p12)} bytes")
 
       import_certificate(
         certificate_path:     decrypted_p12,
@@ -50,6 +50,11 @@ platform :ios do
         keychain_name:        "fastlane_tmp_keychain",
         keychain_password:    "",
       )
+
+      # Grant codesign access to all private keys in the keychain.
+      # Without this the key exists but isn't accessible for signing.
+      sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k '' ~/Library/Keychains/fastlane_tmp_keychain-db 2>&1 || true")
+      sh("echo '-- Identities in signing keychain:' && security find-identity -v -p codesigning ~/Library/Keychains/fastlane_tmp_keychain-db 2>&1 || true")
 
       # Decrypt and install the provisioning profile.
       encrypted_pp = Dir.glob("#{certs_dir}/profiles/appstore/*.mobileprovision").first
@@ -60,7 +65,23 @@ platform :ios do
         FileUtils.cp(encrypted_pp, decrypted_pp)
         enc.decrypt(file_path: decrypted_pp, password: match_password)
         FileUtils.cp(decrypted_pp, "#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision")
+        UI.message("Installed provisioning profile (#{File.size(decrypted_pp)} bytes)")
       end
+
+      # -------------------------------------------------------------------
+      # Step 3: Switch Runner target from Automatic to Manual signing.
+      # Using update_code_signing_settings scopes the change to the Runner
+      # target only — CocoaPods targets are left as Automatic.
+      # -------------------------------------------------------------------
+      update_code_signing_settings(
+        use_automatic_signing: false,
+        team_id:               "D24ZU8268L",
+        code_sign_identity:    "Apple Distribution",
+        bundle_identifier:     "com.gravity.gravityGame",
+        targets:               ["Runner"],
+        path:                  "ios/Runner.xcodeproj",
+        profile_name:          "match AppStore com.gravity.gravityGame",
+      )
     end
 
     api_key = app_store_connect_api_key(
@@ -70,13 +91,10 @@ platform :ios do
     )
 
     # Build the IPA.
-    # xcargs override the Xcode project's Automatic signing (which has no
-    # team set) with Manual signing using the provisioning profile from match.
     build_app(
       workspace:     "ios/Runner.xcworkspace",
       scheme:        "Runner",
       export_method: "app-store",
-      xcargs:        'CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=D24ZU8268L CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="match AppStore com.gravity.gravityGame"',
       export_options: {
         provisioningProfiles: {
           "com.gravity.gravityGame" => "match AppStore com.gravity.gravityGame",
