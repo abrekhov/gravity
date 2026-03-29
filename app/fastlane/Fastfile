@@ -39,13 +39,10 @@ platform :ios do
       encrypted_p12 = Dir.glob("#{certs_dir}/certs/distribution/*.p12").first
       UI.user_error!("No .p12 found in certs repo") unless encrypted_p12
 
+      # decrypt() decrypts in-place: copy first, then call decrypt on the copy.
       decrypted_p12 = "#{certs_dir}/cert.p12"
-      File.open(decrypted_p12, "wb") do |f|
-        f.write(enc.decrypt(
-          file_path: encrypted_p12,
-          password:  match_password,
-        ))
-      end
+      FileUtils.cp(encrypted_p12, decrypted_p12)
+      enc.decrypt(file_path: decrypted_p12, password: match_password)
 
       import_certificate(
         certificate_path:     decrypted_p12,
@@ -59,12 +56,10 @@ platform :ios do
       if encrypted_pp
         pp_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
         FileUtils.mkdir_p(pp_dir)
-        File.open("#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision", "wb") do |f|
-          f.write(enc.decrypt(
-            file_path: encrypted_pp,
-            password:  match_password,
-          ))
-        end
+        decrypted_pp = "#{certs_dir}/profile.mobileprovision"
+        FileUtils.cp(encrypted_pp, decrypted_pp)
+        enc.decrypt(file_path: decrypted_pp, password: match_password)
+        FileUtils.cp(decrypted_pp, "#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision")
       end
     end
 
