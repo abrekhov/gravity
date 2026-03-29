@@ -11,7 +11,9 @@ platform :ios do
       key_content: ENV["ASC_API_KEY"],
     )
 
-    # Sync certificates & provisioning profiles from private certs repo
+    # Sync certificates & provisioning profiles from private certs repo.
+    # On CI, setup_ci creates 'fastlane_tmp_keychain' with empty password —
+    # pass that explicitly so match imports the cert into the right keychain.
     match(
       type: "appstore",
       readonly: is_ci,
@@ -20,6 +22,8 @@ platform :ios do
       git_basic_authorization: Base64.strict_encode64(
         "#{ENV["MATCH_GIT_USER"]}:#{ENV["MATCH_GIT_TOKEN"]}"
       ),
+      keychain_name: "fastlane_tmp_keychain",
+      keychain_password: "",
     )
 
     # Build the IPA
