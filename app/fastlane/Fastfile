@@ -5,12 +5,23 @@ default_platform(:ios)
 platform :ios do
   desc "Push a new beta build to TestFlight"
   lane :beta do
+    api_key = app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    profile_name = "match AppStore com.gravity.gravityGame"
+
     if is_ci
-      # -------------------------------------------------------------------
-      # Step 1: Create a fresh, unlocked signing keychain.
-      # -------------------------------------------------------------------
+      match_user     = ENV["MATCH_GIT_USER"]
+      match_token    = ENV["MATCH_GIT_TOKEN"]
+      match_password = ENV["MATCH_PASSWORD"]
+      keychain_name  = "fastlane_tmp_keychain"
+      keychain_db    = File.expand_path("~/Library/Keychains/#{keychain_name}-db")
+
       create_keychain(
-        name: "fastlane_tmp_keychain",
+        name: keychain_name,
         password: "",
         default_keychain: true,
         unlock: true,
@@ -18,66 +29,134 @@ platform :ios do
         add_to_search_list: true,
       )
 
-      # -------------------------------------------------------------------
-      # Step 2: Clone the match certs repo and decrypt+import manually.
-      # match's built-in `security import` silently drops the private key
-      # on some CI runners. We use match's own Ruby encryption class to
-      # decrypt in-place, then import with import_certificate.
-      # -------------------------------------------------------------------
-      match_user     = ENV["MATCH_GIT_USER"]
-      match_token    = ENV["MATCH_GIT_TOKEN"]
-      match_password = ENV["MATCH_PASSWORD"]
-
-      certs_dir = Dir.mktmpdir("match_certs")
-      sh("git clone 'https://#{match_user}:#{match_token}@github.com/abrekhov/gravity-certificates.git' '#{certs_dir}' --depth 1")
-
-      # Decrypt .p12 using match's own encryption library.
-      # decrypt() is in-place: copy first, then decrypt the copy.
+      # --- Step 1: Try to import cert+key from the match certs repo. ---
       require 'match'
       enc = Match::Encryption::MatchFileEncryption.new
 
-      encrypted_p12 = Dir.glob("#{certs_dir}/certs/distribution/*.p12").first
-      UI.user_error!("No .p12 found in certs repo") unless encrypted_p12
+      certs_dir = Dir.mktmpdir("match_certs")
+      sh("git clone 'https://#{match_user}:#{match_token}@github.com/abrekhov/gravity-certificates.git' '#{certs_dir}' --depth 1 2>&1")
 
-      decrypted_p12 = "#{certs_dir}/cert.p12"
-      FileUtils.cp(encrypted_p12, decrypted_p12)
-      enc.decrypt(file_path: decrypted_p12, password: match_password)
-      UI.message("Decrypted .p12 size: #{File.size(decrypted_p12)} bytes")
+      identity_found = false
+      encrypted_p12  = Dir.glob("#{certs_dir}/certs/distribution/*.p12").first
 
-      # Write password to a temp file so the shell command won't break on
-      # special characters.
-      pass_file = "#{certs_dir}/p12pass.txt"
-      File.write(pass_file, match_password.to_s)
+      if encrypted_p12
+        decrypted_p12 = "#{certs_dir}/cert.p12"
+        FileUtils.cp(encrypted_p12, decrypted_p12)
+        enc.decrypt(file_path: decrypted_p12, password: match_password)
+        UI.message("Decrypted .p12 size: #{File.size(decrypted_p12)} bytes")
 
-      # Check the .p12 structure with openssl before attempting import.
-      sh("openssl pkcs12 -in #{decrypted_p12.shellescape} -passin file:#{pass_file.shellescape} -noout -info 2>&1 || echo '[WARN] openssl p12 check failed — wrong password or no private key'")
+        sh("security import #{decrypted_p12.shellescape} -k #{keychain_db.shellescape} -P #{match_password.to_s.shellescape} -A -T /usr/bin/codesign -T /usr/bin/security 2>&1 || true")
+        sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k '' #{keychain_db.shellescape} 2>&1 || true")
 
-      # Import using a direct security import command (more transparent than
-      # the import_certificate action).
-      keychain_db = File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db")
-      sh("security import #{decrypted_p12.shellescape} -k #{keychain_db.shellescape} -P #{match_password.to_s.shellescape} -A -T /usr/bin/codesign -T /usr/bin/security 2>&1 && echo 'security import OK' || echo '[WARN] security import exited non-zero'")
-
-      # Grant codesign access to all private keys in the keychain.
-      sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k '' #{keychain_db.shellescape} 2>&1 || true")
-      sh("echo '-- Identities in signing keychain:' && security find-identity -v -p codesigning #{keychain_db.shellescape} 2>&1 || true")
-
-      # Decrypt and install the provisioning profile.
-      encrypted_pp = Dir.glob("#{certs_dir}/profiles/appstore/*.mobileprovision").first
-      if encrypted_pp
-        pp_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
-        FileUtils.mkdir_p(pp_dir)
-        decrypted_pp = "#{certs_dir}/profile.mobileprovision"
-        FileUtils.cp(encrypted_pp, decrypted_pp)
-        enc.decrypt(file_path: decrypted_pp, password: match_password)
-        FileUtils.cp(decrypted_pp, "#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision")
-        UI.message("Installed provisioning profile (#{File.size(decrypted_pp)} bytes)")
+        id_out = sh("security find-identity -v -p codesigning #{keychain_db.shellescape} 2>&1", log: false)
+        UI.message("Identities after match import: #{id_out.strip}")
+        identity_found = id_out.include?("Apple Distribution") || (id_out.match(/(\d+) valid identit/) && $1.to_i > 0)
       end
 
-      # -------------------------------------------------------------------
-      # Step 3: Switch Runner target from Automatic to Manual signing.
-      # Using update_code_signing_settings scopes the change to the Runner
-      # target only — CocoaPods targets are left as Automatic.
-      # -------------------------------------------------------------------
+      # --- Step 2: Fallback — generate a fresh cert+key if match had no key. ---
+      unless identity_found
+        UI.important("No signing identity from match repo — creating fresh distribution certificate via App Store Connect API")
+
+        cert_out_dir = Dir.mktmpdir("cert_out")
+        cert(
+          type:             "distribution",
+          force:            true,   # always generate fresh so private key is on this machine
+          team_id:          "D24ZU8268L",
+          keychain_path:    keychain_db,
+          keychain_password: "",
+          api_key:          api_key,
+          output_path:      cert_out_dir,
+        )
+
+        sh("security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k '' #{keychain_db.shellescape} 2>&1 || true")
+        sh("echo '=== Identities after cert action ===' && security find-identity -v -p codesigning #{keychain_db.shellescape} 2>&1")
+
+        # Export the new cert+key as a p12 and push it to the match repo so
+        # future CI runs can skip this costly regeneration step.
+        begin
+          new_p12_plain = File.join(cert_out_dir, "export.p12")
+          export_ok = system("security export -k #{keychain_db.shellescape} -t identities -f pkcs12 -P #{match_password.to_s.shellescape} #{new_p12_plain.shellescape} 2>&1")
+
+          if export_ok && File.exist?(new_p12_plain) && File.size(new_p12_plain) > 100
+            UI.message("Exported new .p12: #{File.size(new_p12_plain)} bytes")
+
+            cer_file  = Dir.glob("#{cert_out_dir}/*.cer").first
+            basename  = cer_file ? File.basename(cer_file, ".cer") : "distribution_#{Time.now.to_i}"
+
+            # Replace old certs in the match repo
+            Dir.glob("#{certs_dir}/certs/distribution/*.p12").each { |f| FileUtils.rm(f) }
+            Dir.glob("#{certs_dir}/certs/distribution/*.cer").each  { |f| FileUtils.rm(f) }
+
+            new_p12_enc = "#{certs_dir}/certs/distribution/#{basename}.p12"
+            FileUtils.cp(new_p12_plain, new_p12_enc)
+            enc.encrypt(file_path: new_p12_enc, password: match_password)
+
+            if cer_file
+              new_cer_enc = "#{certs_dir}/certs/distribution/#{basename}.cer"
+              FileUtils.cp(cer_file, new_cer_enc)
+              enc.encrypt(file_path: new_cer_enc, password: match_password)
+            end
+
+            Dir.chdir(certs_dir) do
+              sh("git config user.email 'ci@gravity.app' && git config user.name 'Gravity CI'")
+              sh("git add certs/ && (git diff --cached --quiet && echo 'no cert changes' || (git commit -m 'ci: regenerate distribution cert with private key' && git push 'https://#{match_user}:#{match_token}@github.com/abrekhov/gravity-certificates.git' HEAD:main)) 2>&1")
+            end
+            UI.success("Updated match certs repo with new certificate")
+          else
+            UI.important("p12 export failed or empty — match repo not updated (build may still succeed)")
+          end
+        rescue => e
+          UI.important("Failed to update match certs repo: #{e.message}")
+        end
+      end
+
+      # --- Step 3: Install provisioning profile. ---
+      pp_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
+      FileUtils.mkdir_p(pp_dir)
+
+      if identity_found
+        # Re-use the existing profile from the match repo (cert matched).
+        encrypted_pp = Dir.glob("#{certs_dir}/profiles/appstore/*.mobileprovision").first
+        if encrypted_pp
+          decrypted_pp = "#{certs_dir}/profile.mobileprovision"
+          FileUtils.cp(encrypted_pp, decrypted_pp)
+          enc.decrypt(file_path: decrypted_pp, password: match_password)
+          FileUtils.cp(decrypted_pp, "#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision")
+          UI.message("Installed provisioning profile from match (#{File.size(decrypted_pp)} bytes)")
+        end
+        # profile_name stays "match AppStore com.gravity.gravityGame"
+      else
+        # New cert was created — regenerate the provisioning profile via the API.
+        sigh(
+          app_identifier: "com.gravity.gravityGame",
+          type:           "appstore",
+          team_id:        "D24ZU8268L",
+          api_key:        api_key,
+          output_path:    pp_dir,
+          filename:       "AppStore_com.gravity.gravityGame.mobileprovision",
+        )
+        profile_name = lane_context[SharedValues::SIGH_NAME]
+        UI.message("Provisioning profile from sigh: #{profile_name}")
+
+        # Push the new profile to the match repo as well.
+        begin
+          new_pp_path = "#{pp_dir}/AppStore_com.gravity.gravityGame.mobileprovision"
+          if File.exist?(new_pp_path)
+            Dir.glob("#{certs_dir}/profiles/appstore/*.mobileprovision").each { |f| FileUtils.rm(f) }
+            new_pp_enc = "#{certs_dir}/profiles/appstore/AppStore_com.gravity.gravityGame.mobileprovision"
+            FileUtils.cp(new_pp_path, new_pp_enc)
+            enc.encrypt(file_path: new_pp_enc, password: match_password)
+            Dir.chdir(certs_dir) do
+              sh("git add profiles/ && (git diff --cached --quiet && echo 'no profile changes' || (git commit -m 'ci: update provisioning profile for new cert' && git push 'https://#{match_user}:#{match_token}@github.com/abrekhov/gravity-certificates.git' HEAD:main)) 2>&1")
+            end
+            UI.success("Updated match certs repo with new provisioning profile")
+          end
+        rescue => e
+          UI.important("Failed to update match profile in repo: #{e.message}")
+        end
+      end
+
+      # --- Step 4: Switch Runner to manual signing. ---
       update_code_signing_settings(
         use_automatic_signing: false,
         team_id:               "D24ZU8268L",
@@ -85,29 +164,21 @@ platform :ios do
         bundle_identifier:     "com.gravity.gravityGame",
         targets:               ["Runner"],
         path:                  "ios/Runner.xcodeproj",
-        profile_name:          "match AppStore com.gravity.gravityGame",
+        profile_name:          profile_name,
       )
     end
 
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_API_KEY"],
-    )
-
-    # Build the IPA.
     build_app(
       workspace:     "ios/Runner.xcworkspace",
       scheme:        "Runner",
       export_method: "app-store",
       export_options: {
         provisioningProfiles: {
-          "com.gravity.gravityGame" => "match AppStore com.gravity.gravityGame",
+          "com.gravity.gravityGame" => profile_name,
         },
       },
     )
 
-    # Upload to TestFlight (skip waiting — saves CI minutes).
     upload_to_testflight(
       api_key:                          api_key,
       skip_waiting_for_build_processing: true,
