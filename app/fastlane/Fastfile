@@ -180,6 +180,15 @@ platform :ios do
       )
     end
 
+    # Stamp the build number from CI (github.run_number) so every push
+    # produces a unique, ever-increasing build number in TestFlight.
+    if ENV["BUILD_NUMBER"]
+      increment_build_number(
+        build_number: ENV["BUILD_NUMBER"].to_i,
+        xcodeproj:    "ios/Runner.xcodeproj",
+      )
+    end
+
     build_app(
       workspace:     "ios/Runner.xcworkspace",
       scheme:        "Runner",

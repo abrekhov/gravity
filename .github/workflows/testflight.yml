@@ -26,7 +26,7 @@ jobs:
 
       - name: Build iOS (no code sign — Fastlane handles signing)
         working-directory: app
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
@@ -45,4 +45,5 @@ jobs:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_GIT_USER: ${{ secrets.MATCH_GIT_USER }}
           MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane beta
