@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   flame: ^1.18.0
   shared_preferences: ^2.2.3
+  google_mobile_ads: ^5.1.0
+  in_app_purchase: ^3.2.0
 
 dev_dependencies:
   flutter_test:
@@ -19,3 +21,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'level_data.dart';
 import 'physics.dart';
+import '../services/purchase_service.dart';
 
 // ─── Events ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,14 @@ class GravityGame extends FlameGame with DragCallbacks {
   // ─── Level management ────────────────────────────────────────────────────
 
   Future<void> startLevel(int levelId) async {
+    // Levels 11+ require Premium; show the purchase overlay instead.
+    if (levelId > 10 && !PurchaseService.instance.isPremium) {
+      overlays.remove('LevelSelect');
+      overlays.remove('MainMenu');
+      if (!overlays.isActive('PremiumOffer')) overlays.add('PremiumOffer');
+      return;
+    }
+
     currentLevelId = levelId;
     activeLevel = kLevels.firstWhere((l) => l.id == levelId);
     _phase = _Phase.aiming;

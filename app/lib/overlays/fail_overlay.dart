@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../game/gravity_game.dart';
+import '../services/ad_service.dart';
 import 'overlay_button.dart';
 
 class FailOverlayWidget extends StatefulWidget {
@@ -69,7 +70,8 @@ class _FailOverlayWidgetState extends State<FailOverlayWidget> {
                         label: 'TRY AGAIN',
                         primary: true,
                         width: 190,
-                        onTap: () => widget.game.retry(),
+                        onTap: () => AdService.instance
+                            .showIfReady(onDismissed: widget.game.retry),
                       ),
                       const SizedBox(height: 12),
                       OverlayButton(

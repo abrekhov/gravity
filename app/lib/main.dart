@@ -8,7 +8,10 @@ import 'overlays/fail_overlay.dart';
 import 'overlays/hud.dart';
 import 'overlays/level_select.dart';
 import 'overlays/main_menu.dart';
+import 'overlays/premium_overlay.dart';
 import 'overlays/win_overlay.dart';
+import 'services/ad_service.dart';
+import 'services/purchase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +23,10 @@ void main() async {
     ]);
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
+
+  // Initialise monetisation services (ads + IAP) before the game starts.
+  await PurchaseService.instance.initialize();
+  if (!kIsWeb) await AdService.instance.initialize();
 
   final game = GravityGame();
 
@@ -43,6 +50,8 @@ void main() async {
                 WinOverlayWidget(game: game),
             'FailOverlay': (context, game) =>
                 FailOverlayWidget(game: game),
+            'PremiumOffer': (context, game) =>
+                PremiumOverlay(game: game),
           },
           initialActiveOverlays: const ['MainMenu'],
         ),

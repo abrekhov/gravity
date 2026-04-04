@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../game/gravity_game.dart';
 import '../game/level_data.dart';
+import '../services/ad_service.dart';
 import 'overlay_button.dart';
 
 class WinOverlayWidget extends StatefulWidget {
@@ -92,11 +94,21 @@ class _WinOverlayWidgetState extends State<WinOverlayWidget> {
                           label: nextLabel,
                           primary: true,
                           width: 220,
-                          onTap: () {
-                            if (isLast) {
-                              widget.game.startLevel(1);
+                          onTap: () async {
+                            final action = isLast
+                                ? () => widget.game.startLevel(1)
+                                : widget.game.nextLevel;
+                            // Show an interstitial every 3rd completed level.
+                            final prefs =
+                                await SharedPreferences.getInstance();
+                            final count =
+                                (prefs.getInt('gravity_win_count') ?? 0) + 1;
+                            await prefs.setInt('gravity_win_count', count);
+                            if (count % 3 == 0) {
+                              AdService.instance
+                                  .showIfReady(onDismissed: action);
                             } else {
-                              widget.game.nextLevel();
+                              action();
                             }
                           },
                         ),
