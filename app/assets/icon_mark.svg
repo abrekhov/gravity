@@ -1,79 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-  <defs>
-    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="softGlow" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#3D6FFF" stop-opacity="0.28"/>
-      <stop offset="100%" stop-color="#3D6FFF" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="bhCore" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#000000"/>
-      <stop offset="75%" stop-color="#040210"/>
-      <stop offset="100%" stop-color="#0A0530"/>
-    </radialGradient>
-  </defs>
-
-  <!-- Background (square, matches game bg) -->
+  <!-- Background -->
   <rect width="200" height="200" fill="#000814" rx="28"/>
 
   <!-- Stars -->
-  <circle cx="22"  cy="28"  r="1.2" fill="#FFFFFF" opacity="0.50"/>
-  <circle cx="54"  cy="14"  r="0.8" fill="#FFFFFF" opacity="0.40"/>
-  <circle cx="168" cy="22"  r="1"   fill="#FFFFFF" opacity="0.45"/>
-  <circle cx="180" cy="165" r="0.8" fill="#FFFFFF" opacity="0.35"/>
-  <circle cx="26"  cy="172" r="1.1" fill="#FFFFFF" opacity="0.40"/>
-  <circle cx="146" cy="180" r="0.7" fill="#FFFFFF" opacity="0.30"/>
-  <circle cx="14"  cy="100" r="0.9" fill="#FFFFFF" opacity="0.30"/>
+  <circle cx="22"  cy="28"  r="1.2" fill="#FFFFFF" opacity="0.45"/>
+  <circle cx="168" cy="22"  r="1"   fill="#FFFFFF" opacity="0.40"/>
+  <circle cx="180" cy="165" r="0.9" fill="#FFFFFF" opacity="0.35"/>
+  <circle cx="26"  cy="172" r="1.1" fill="#FFFFFF" opacity="0.38"/>
+  <circle cx="146" cy="182" r="0.7" fill="#FFFFFF" opacity="0.28"/>
 
-  <!-- ─── BLACK HOLE  (centered at 100, 100) ─── -->
+  <!-- ─── BLACK HOLE — exact match to _BlackHoleComponent.render() ───
+       center (100,100), r=45
+       loop: for i=5..1 → drawCircle(r + i*9, #5533BB, opacity 0.025*(6-i)) -->
+  <circle cx="100" cy="100" r="90" fill="#5533BB" fill-opacity="0.025"/>
+  <circle cx="100" cy="100" r="81" fill="#5533BB" fill-opacity="0.05"/>
+  <circle cx="100" cy="100" r="72" fill="#5533BB" fill-opacity="0.075"/>
+  <circle cx="100" cy="100" r="63" fill="#5533BB" fill-opacity="0.1"/>
+  <circle cx="100" cy="100" r="54" fill="#5533BB" fill-opacity="0.125"/>
 
-  <!-- Outer ambient halo -->
-  <circle cx="100" cy="100" r="80" fill="url(#halo)" filter="url(#softGlow)"/>
+  <!-- Outer accretion disk: r+5=50, #FF7700 opacity 0.85, stroke 3 -->
+  <circle cx="100" cy="100" r="50" fill="none"
+          stroke="#FF7700" stroke-opacity="0.85" stroke-width="3"/>
+  <!-- Inner hot ring: r+2=47, #FFDD88 opacity 0.6, stroke 1.5 -->
+  <circle cx="100" cy="100" r="47" fill="none"
+          stroke="#FFDD88" stroke-opacity="0.60" stroke-width="1.5"/>
+  <!-- Black core -->
+  <circle cx="100" cy="100" r="45" fill="#000000"/>
 
-  <!-- Bottom halves of accretion rings -->
-  <!-- Outer ring: rx=70 ry=20  left=(30,100) right=(170,100) -->
-  <path d="M 30,100 A 70,20 0 0 0 170,100"
-        fill="none" stroke="#3D6FFF" stroke-width="2" stroke-opacity="0.18"/>
-  <!-- Middle ring: rx=56 ry=15  left=(44,100) right=(156,100) -->
-  <path d="M 44,100 A 56,15 0 0 0 156,100"
-        fill="none" stroke="#6A40D8" stroke-width="2.5" stroke-opacity="0.38"/>
-  <!-- Inner ring: rx=42 ry=10  left=(58,100) right=(142,100) -->
-  <path d="M 58,100 A 42,10 0 0 0 142,100"
-        fill="none" stroke="#A070FF" stroke-width="3" stroke-opacity="0.52"/>
+  <!-- ─── SHIP TRAIL (fading dots along orbit arc behind the ship)
+       orbit r=80, ship at -45° → trail points from -135° to -50° -->
+  <circle cx="43"  cy="43"  r="1.0" fill="#AABBDD" fill-opacity="0.07"/>
+  <circle cx="64"  cy="29"  r="1.1" fill="#AABBDD" fill-opacity="0.10"/>
+  <circle cx="88"  cy="21"  r="1.4" fill="#AABBDD" fill-opacity="0.14"/>
+  <circle cx="112" cy="21"  r="1.6" fill="#AABBDD" fill-opacity="0.19"/>
+  <circle cx="136" cy="29"  r="1.9" fill="#AABBDD" fill-opacity="0.24"/>
 
-  <!-- Black hole disc -->
-  <circle cx="100" cy="100" r="36" fill="#000814"/>
-  <circle cx="100" cy="100" r="33" fill="url(#bhCore)"/>
-  <!-- Event horizon rim -->
-  <circle cx="100" cy="100" r="33" fill="none"
-          stroke="#6030B0" stroke-width="2.5" stroke-opacity="0.60"
-          filter="url(#glow)"/>
-
-  <!-- Top halves of accretion rings (in front of black hole) -->
-  <path d="M 30,100 A 70,20 0 0 1 170,100"
-        fill="none" stroke="#3D6FFF" stroke-width="2" stroke-opacity="0.40"
-        filter="url(#glow)"/>
-  <path d="M 44,100 A 56,15 0 0 1 156,100"
-        fill="none" stroke="#7050E8" stroke-width="2.5" stroke-opacity="0.72"
-        filter="url(#glow)"/>
-  <path d="M 58,100 A 42,10 0 0 1 142,100"
-        fill="none" stroke="#A070FF" stroke-width="3" stroke-opacity="0.90"
-        filter="url(#glow)"/>
-
-  <!-- ── Player dot — top of middle orbit (100, 100-15=85) ── -->
-  <!-- Velocity line (tangent → right) -->
-  <line x1="100" y1="85" x2="118" y2="82"
-        stroke="#3D6FFF" stroke-width="2" stroke-linecap="round" stroke-opacity="0.80"/>
-  <circle cx="118" cy="82" r="2.5" fill="#3D6FFF" opacity="0.80"/>
-  <!-- Dot glow -->
-  <circle cx="100" cy="85" r="12" fill="#3D6FFF" fill-opacity="0.18"
-          filter="url(#softGlow)"/>
-  <!-- Dot -->
-  <circle cx="100" cy="85" r="6" fill="#FFFFFF" filter="url(#glow)"/>
+  <!-- ─── SHIP — scale 2×, translate(157,43), rotate(45°) clockwise
+       pointing along orbit tangent at upper-right position -->
+  <g transform="translate(157,43) rotate(45)">
+    <!-- Engine exhaust glow -->
+    <circle cx="-10" cy="0" r="10" fill="#4466FF" fill-opacity="0.45"/>
+    <circle cx="-10" cy="0" r="6"  fill="#AABBFF" fill-opacity="0.75"/>
+    <!-- Wing fins: M(-2,0) L(-14,-12) L(-16,-7) L(-6,0) L(-16,7) L(-14,12) Z -->
+    <path d="M-2,0 L-14,-12 L-16,-7 L-6,0 L-16,7 L-14,12 Z" fill="#5566AA"/>
+    <!-- Main hull: M(22,0) L(-8,-8) L(-4,0) L(-8,8) Z -->
+    <path d="M22,0 L-8,-8 L-4,0 L-8,8 Z" fill="#CCDDFF"/>
+    <!-- Cockpit shine -->
+    <circle cx="8" cy="-2" r="3.5" fill="#FFFFFF" fill-opacity="0.55"/>
+  </g>
 </svg>
