@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'qa_service.dart';
+
 const _premiumProductId = 'com.gravity.gravityGame.premium';
 const _premiumPrefsKey  = 'gravity_premium';
 
@@ -11,7 +13,7 @@ class PurchaseService {
   static final instance = PurchaseService._();
 
   bool _isPremium = false;
-  bool get isPremium => _isPremium;
+  bool get isPremium => _isPremium || QaService.instance.isQaMode;
 
   ProductDetails? _product;
   StreamSubscription<List<PurchaseDetails>>? _sub;

@@ -1,15 +1,44 @@
+import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../game/gravity_game.dart';
 import '../game/level_data.dart';
+import '../services/qa_service.dart';
 
-class MainMenuOverlay extends StatelessWidget {
+class MainMenuOverlay extends StatefulWidget {
   final GravityGame game;
   const MainMenuOverlay({required this.game, super.key});
 
   @override
+  State<MainMenuOverlay> createState() => _MainMenuOverlayState();
+}
+
+class _MainMenuOverlayState extends State<MainMenuOverlay> {
+  // ── 7-tap QA unlock ──────────────────────────────────────────────────────
+  int _tapCount = 0;
+  Timer? _tapTimer;
+
+  void _onTitleTap() {
+    _tapTimer?.cancel();
+    _tapCount++;
+    if (_tapCount >= 7) {
+      _tapCount = 0;
+      QaService.instance.toggle();
+    } else {
+      _tapTimer = Timer(const Duration(seconds: 3), () {
+        setState(() => _tapCount = 0);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _tapTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final resumeId =
-        (game.unlockedLevelId).clamp(1, kLevels.length);
+    final resumeId = widget.game.unlockedLevelId.clamp(1, kLevels.length);
 
     return GestureDetector(
       onTapDown: (_) {}, // absorb so game doesn't receive stray taps
@@ -36,24 +65,27 @@ class MainMenuOverlay extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        // Main title
-        const Text(
-          'GRAVITY',
-          style: TextStyle(
-            fontSize: 96,
-            fontWeight: FontWeight.w300,
-            letterSpacing: 8,
-            color: Color(0xFFFFFFFF),
-            shadows: [
-              Shadow(
-                  color: Color(0x663D6FFF),
-                  blurRadius: 32,
-                  offset: Offset(0, 0)),
-              Shadow(
-                  color: Color(0x333D6FFF),
-                  blurRadius: 64,
-                  offset: Offset(0, 0)),
-            ],
+        // Main title — tap 7× to toggle QA mode
+        GestureDetector(
+          onTap: _onTitleTap,
+          child: const Text(
+            'GRAVITY',
+            style: TextStyle(
+              fontSize: 96,
+              fontWeight: FontWeight.w300,
+              letterSpacing: 8,
+              color: Color(0xFFFFFFFF),
+              shadows: [
+                Shadow(
+                    color: Color(0x663D6FFF),
+                    blurRadius: 32,
+                    offset: Offset(0, 0)),
+                Shadow(
+                    color: Color(0x333D6FFF),
+                    blurRadius: 64,
+                    offset: Offset(0, 0)),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 4),
@@ -70,7 +102,7 @@ class MainMenuOverlay extends StatelessWidget {
           label: 'CONTINUE  ·  Level $resumeId',
           primary: true,
           width: 300,
-          onTap: () => game.startLevel(resumeId),
+          onTap: () => widget.game.startLevel(resumeId),
         ),
         const SizedBox(height: 14),
         // SELECT LEVEL button
@@ -79,8 +111,8 @@ class MainMenuOverlay extends StatelessWidget {
           primary: false,
           width: 220,
           onTap: () {
-            game.overlays.remove('MainMenu');
-            game.overlays.add('LevelSelect');
+            widget.game.overlays.remove('MainMenu');
+            widget.game.overlays.add('LevelSelect');
           },
         ),
         const SizedBox(height: 28),

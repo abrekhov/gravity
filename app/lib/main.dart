@@ -12,6 +12,7 @@ import 'overlays/premium_overlay.dart';
 import 'overlays/win_overlay.dart';
 import 'services/ad_service.dart';
 import 'services/purchase_service.dart';
+import 'services/qa_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,9 @@ void main() async {
     ]);
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
+
+  // QA mode: URL param (?qa=gravitasdev) or 7-tap title code.
+  await QaService.instance.initialize();
 
   // Ads and IAP are mobile-only; both packages lack web implementations.
   if (!kIsWeb) {
@@ -40,22 +44,45 @@ void main() async {
       ),
       home: Scaffold(
         backgroundColor: const Color(0xFF000814),
-        body: GameWidget<GravityGame>(
-          game: game,
-          overlayBuilderMap: {
-            'MainMenu': (context, game) =>
-                MainMenuOverlay(game: game),
-            'LevelSelect': (context, game) =>
-                LevelSelectOverlay(game: game),
-            'HUD': (context, game) => HUDOverlay(game: game),
-            'WinOverlay': (context, game) =>
-                WinOverlayWidget(game: game),
-            'FailOverlay': (context, game) =>
-                FailOverlayWidget(game: game),
-            'PremiumOffer': (context, game) =>
-                PremiumOverlay(game: game),
+        body: ListenableBuilder(
+          listenable: QaService.instance,
+          builder: (context, child) {
+            return Stack(
+              children: [
+                child!,
+                if (QaService.instance.isQaMode)
+                  const Positioned(
+                    bottom: 8,
+                    right: 12,
+                    child: Text(
+                      '🔧 QA',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0x99FF7700),
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+              ],
+            );
           },
-          initialActiveOverlays: const ['MainMenu'],
+          child: GameWidget<GravityGame>(
+            game: game,
+            overlayBuilderMap: {
+              'MainMenu': (context, game) =>
+                  MainMenuOverlay(game: game),
+              'LevelSelect': (context, game) =>
+                  LevelSelectOverlay(game: game),
+              'HUD': (context, game) => HUDOverlay(game: game),
+              'WinOverlay': (context, game) =>
+                  WinOverlayWidget(game: game),
+              'FailOverlay': (context, game) =>
+                  FailOverlayWidget(game: game),
+              'PremiumOffer': (context, game) =>
+                  PremiumOverlay(game: game),
+            },
+            initialActiveOverlays: const ['MainMenu'],
+          ),
         ),
       ),
     ),
