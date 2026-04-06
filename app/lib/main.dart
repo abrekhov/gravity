@@ -24,9 +24,11 @@ void main() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
-  // Initialise monetisation services (ads + IAP) before the game starts.
-  await PurchaseService.instance.initialize();
-  if (!kIsWeb) await AdService.instance.initialize();
+  // Ads and IAP are mobile-only; both packages lack web implementations.
+  if (!kIsWeb) {
+    await PurchaseService.instance.initialize();
+    await AdService.instance.initialize();
+  }
 
   final game = GravityGame();
 
