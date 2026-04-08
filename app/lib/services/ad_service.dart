@@ -5,7 +5,7 @@ import 'purchase_service.dart';
 
 // Replace with your real AdMob interstitial unit ID once you have one.
 // The ID below is Google's permanent test ID — safe to use during development.
-const _testInterstitialId = 'ca-app-pub-3940256099942544/4411468910';
+const _testInterstitialId = 'ca-app-pub-7949208513831938/5216083131';
 
 class AdService {
   AdService._();

@@ -44,7 +44,7 @@
 	<!-- AdMob: replace the value with your real App ID from admob.google.com.
 	     The ID below is Google's test App ID — safe for development. -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-7949208513831938~7936577832</string>
 	<!-- SKAdNetwork IDs required by google_mobile_ads (v5+).
 	     Full list from https://developers.google.com/admob/ios/3p-skadnetworks -->
 	<key>SKAdNetworkItems</key>
