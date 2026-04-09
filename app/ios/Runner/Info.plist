@@ -131,6 +131,10 @@
 		<dict><key>SKAdNetworkIdentifier</key><string>b9bk5hunting.skadnetwork</string></dict>
 		<dict><key>SKAdNetworkIdentifier</key><string>mls7yz5dvl.skadnetwork</string></dict>
 	</array>
+	<!-- Only standard HTTPS/TLS — no non-exempt encryption.
+	     Skips Apple's export compliance question so builds appear in TestFlight immediately. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
