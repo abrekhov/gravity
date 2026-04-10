@@ -298,50 +298,62 @@ platform :ios do
     UI.success("Version localization updated")
 
     # ---- 3. AppInfo + AppInfoLocalization (name, subtitle, category, privacy URL) ----
-    app_infos = app.get_app_infos
-    edit_info = app_infos.find { |i| i.app_store_state == "PREPARE_FOR_SUBMISSION" } || app_infos.first
-    raise "No AppInfo found" unless edit_info
-    UI.message("AppInfo id=#{edit_info.id} state=#{edit_info.app_store_state}")
+    # app.get_app_infos is not available in all Spaceship versions; use the module function.
+    begin
+      app_infos = Spaceship::ConnectAPI.get_app_infos(app_id: app.id).to_models
+      edit_info = app_infos.find { |i| i.app_store_state == "PREPARE_FOR_SUBMISSION" } || app_infos.first
+      raise "No AppInfo found" unless edit_info
+      UI.message("AppInfo id=#{edit_info.id} state=#{edit_info.app_store_state}")
 
-    UI.message("Setting category #{primary_cat} / #{sub_cat}")
-    edit_info.update_categories(
-      primary_category_id:       primary_cat,
-      primary_subcategory_one_id: sub_cat,
-    )
-    UI.success("Category set")
+      begin
+        UI.message("Setting category #{primary_cat} / #{sub_cat}")
+        edit_info.update_categories(
+          primary_category_id:        primary_cat,
+          primary_subcategory_one_id: sub_cat,
+        )
+        UI.success("Category set")
+      rescue => ce
+        UI.important("Category update skipped: #{ce.message}")
+      end
 
-    info_locs   = edit_info.get_app_info_localizations
-    en_info_loc = info_locs.find { |l| l.locale == locale }
-
-    unless en_info_loc
-      UI.important("Creating #{locale} AppInfoLocalization")
-      Spaceship::ConnectAPI.post(
-        "appInfoLocalizations",
-        body: {
-          data: {
-            type: "appInfoLocalizations",
-            attributes: { locale: locale },
-            relationships: {
-              appInfo: { data: { type: "appInfos", id: edit_info.id } },
-            },
-          },
-        }
-      )
-      sleep 5
       info_locs   = edit_info.get_app_info_localizations
       en_info_loc = info_locs.find { |l| l.locale == locale }
-      raise "Failed to create #{locale} AppInfoLocalization" unless en_info_loc
+
+      unless en_info_loc
+        UI.important("Creating #{locale} AppInfoLocalization")
+        Spaceship::ConnectAPI.post(
+          "appInfoLocalizations",
+          body: {
+            data: {
+              type: "appInfoLocalizations",
+              attributes: { locale: locale },
+              relationships: {
+                appInfo: { data: { type: "appInfos", id: edit_info.id } },
+              },
+            },
+          }
+        )
+        sleep 5
+        info_locs   = edit_info.get_app_info_localizations
+        en_info_loc = info_locs.find { |l| l.locale == locale }
+      end
+
+      if en_info_loc
+        UI.message("Patching AppInfoLocalization (name/subtitle/privacy)...")
+        en_info_loc.update(attributes: {
+          "name"             => name,
+          "subtitle"         => subtitle,
+          "privacyPolicyUrl" => privacy_url,
+        })
+        UI.success("App name/subtitle/privacy URL updated")
+      else
+        UI.important("Could not find #{locale} AppInfoLocalization — set name/subtitle manually")
+      end
+    rescue => e
+      UI.important("AppInfo update skipped (#{e.message})")
+      UI.important("Please verify in App Store Connect: name='#{name}', subtitle='#{subtitle}'")
     end
-    UI.message("AppInfoLocalization id=#{en_info_loc.id}")
 
-    UI.message("Patching AppInfoLocalization (name/subtitle/privacy)...")
-    en_info_loc.update(attributes: {
-      "name"             => name,
-      "subtitle"         => subtitle,
-      "privacyPolicyUrl" => privacy_url,
-    })
-    UI.success("App name/subtitle/privacy URL updated")
-
-    UI.success("All metadata uploaded to App Store Connect successfully!")
+    UI.success("Metadata upload complete!")
   end
 end
