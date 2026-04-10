@@ -220,10 +220,10 @@ platform :ios do
       skip_binary_upload:             true,
       skip_screenshots:               true,
       skip_app_version_update:        false,
+      run_precheck_before_submit:     false,
       force:                          true,
       submit_for_review:              false,
       automatic_release:              false,
-      precheck_include_in_app_purchases: false,
       metadata_path:                  "./fastlane/metadata",
     )
   end
