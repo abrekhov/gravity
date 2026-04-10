@@ -216,10 +216,8 @@ platform :ios do
 
     deliver(
       api_key:                        api_key,
-      app_version:                    "1.0.0",
       skip_binary_upload:             true,
       skip_screenshots:               true,
-      skip_app_version_update:        false,
       run_precheck_before_submit:     false,
       force:                          true,
       submit_for_review:              false,
