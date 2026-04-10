@@ -214,43 +214,61 @@ platform :ios do
       key_content: ENV["ASC_API_KEY"],
     )
 
-    # For a first-ever App Store submission, there is no edit version — only
-    # TestFlight (preRelease) versions exist. Deliver's spaceship fails with
-    # "No data" when it can't find AppStoreVersionLocalizations.
-    # Fix: create the App Store version via the API before calling deliver.
+    # Deliver fails with "No data" when AppStoreVersionLocalizations don't exist
+    # (first-ever App Store submission — only TestFlight versions exist).
+    # Pre-flight: ensure the edit version AND its en-US localization both exist.
     begin
       app = Spaceship::ConnectAPI::App.find("com.gravity.gravityGame")
       raise "App not found" unless app
 
       edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
       versions = app.get_app_store_versions(filter: { platform: "IOS" })
-      has_edit = versions.any? { |v| edit_states.include?(v.app_store_state) }
+      edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
 
-      unless has_edit
-        UI.important("No App Store edit version found — creating 1.0.0")
+      unless edit_version
+        UI.important("No App Store edit version — creating 1.0.0")
         Spaceship::ConnectAPI.post(
           "appStoreVersions",
           body: {
             data: {
               type: "appStoreVersions",
-              attributes: {
-                platform: "IOS",
-                versionString: "1.0.0",
-                releaseType: "MANUAL",
-              },
-              relationships: {
-                app: { data: { type: "apps", id: app.id } }
-              }
+              attributes: { platform: "IOS", versionString: "1.0.0", releaseType: "MANUAL" },
+              relationships: { app: { data: { type: "apps", id: app.id } } }
             }
           }
         )
-        UI.success("Version 1.0.0 created — waiting 10s for ASC to settle")
-        sleep 10
+        sleep 8
+        versions = app.get_app_store_versions(filter: { platform: "IOS" })
+        edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+        UI.success("Version 1.0.0 created")
       else
-        UI.message("Edit version found: #{versions.find { |v| edit_states.include?(v.app_store_state) }.version_string}")
+        UI.message("Edit version: #{edit_version.version_string} (#{edit_version.app_store_state})")
+      end
+
+      if edit_version
+        locs = edit_version.get_app_store_version_localizations
+        unless locs.any? { |l| l.locale == "en-US" }
+          UI.important("No en-US localization — creating it")
+          Spaceship::ConnectAPI.post(
+            "appStoreVersionLocalizations",
+            body: {
+              data: {
+                type: "appStoreVersionLocalizations",
+                attributes: { locale: "en-US" },
+                relationships: {
+                  appStoreVersion: { data: { type: "appStoreVersions", id: edit_version.id } }
+                }
+              }
+            }
+          )
+          sleep 5
+          UI.success("en-US localization created")
+        else
+          UI.message("en-US localization already exists")
+        end
       end
     rescue => e
-      UI.important("Pre-flight version check failed (#{e.message}) — proceeding anyway")
+      UI.important("Pre-flight failed (#{e.message}) — proceeding anyway")
     end
 
     deliver(
