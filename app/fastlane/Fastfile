@@ -214,6 +214,45 @@ platform :ios do
       key_content: ENV["ASC_API_KEY"],
     )
 
+    # For a first-ever App Store submission, there is no edit version — only
+    # TestFlight (preRelease) versions exist. Deliver's spaceship fails with
+    # "No data" when it can't find AppStoreVersionLocalizations.
+    # Fix: create the App Store version via the API before calling deliver.
+    begin
+      app = Spaceship::ConnectAPI::App.find("com.gravity.gravityGame")
+      raise "App not found" unless app
+
+      edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+      versions = app.get_app_store_versions(filter: { platform: "IOS" })
+      has_edit = versions.any? { |v| edit_states.include?(v.app_store_state) }
+
+      unless has_edit
+        UI.important("No App Store edit version found — creating 1.0.0")
+        Spaceship::ConnectAPI.post(
+          "appStoreVersions",
+          body: {
+            data: {
+              type: "appStoreVersions",
+              attributes: {
+                platform: "IOS",
+                versionString: "1.0.0",
+                releaseType: "MANUAL",
+              },
+              relationships: {
+                app: { data: { type: "apps", id: app.id } }
+              }
+            }
+          }
+        )
+        UI.success("Version 1.0.0 created — waiting 10s for ASC to settle")
+        sleep 10
+      else
+        UI.message("Edit version found: #{versions.find { |v| edit_states.include?(v.app_store_state) }.version_string}")
+      end
+    rescue => e
+      UI.important("Pre-flight version check failed (#{e.message}) — proceeding anyway")
+    end
+
     deliver(
       api_key:                        api_key,
       skip_binary_upload:             true,
