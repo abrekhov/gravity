@@ -218,7 +218,7 @@ platform :ios do
     # on first-ever App Store submissions. We bypass it with direct Spaceship API calls.
 
     bundle_id = "com.gravity.gravityGame"
-    meta_dir  = "fastlane/metadata"
+    meta_dir  = "metadata"
     locale    = "en-US"
 
     name          = File.read("#{meta_dir}/#{locale}/name.txt").strip
