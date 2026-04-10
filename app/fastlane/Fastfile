@@ -288,12 +288,12 @@ platform :ios do
     end
 
     UI.message("Patching AppStoreVersionLocalization...")
+    # Note: whatsNew cannot be set on a first-ever submission (no prior live version).
     en_ver_loc.update(attributes: {
       "description"  => description,
       "keywords"     => keywords,
       "supportUrl"   => support_url,
       "marketingUrl" => privacy_url,
-      "whatsNew"     => release_notes,
     })
     UI.success("Version localization updated")
 
