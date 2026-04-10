@@ -288,22 +288,13 @@ platform :ios do
     end
 
     UI.message("Patching AppStoreVersionLocalization...")
-    Spaceship::ConnectAPI.patch(
-      "appStoreVersionLocalizations/#{en_ver_loc.id}",
-      body: {
-        data: {
-          type: "appStoreVersionLocalizations",
-          id:   en_ver_loc.id,
-          attributes: {
-            description:  description,
-            keywords:     keywords,
-            supportUrl:   support_url,
-            marketingUrl: privacy_url,
-            whatsNew:     release_notes,
-          },
-        },
-      }
-    )
+    en_ver_loc.update(attributes: {
+      "description"  => description,
+      "keywords"     => keywords,
+      "supportUrl"   => support_url,
+      "marketingUrl" => privacy_url,
+      "whatsNew"     => release_notes,
+    })
     UI.success("Version localization updated")
 
     # ---- 3. AppInfo + AppInfoLocalization (name, subtitle, category, privacy URL) ----
@@ -313,18 +304,9 @@ platform :ios do
     UI.message("AppInfo id=#{edit_info.id} state=#{edit_info.app_store_state}")
 
     UI.message("Setting category #{primary_cat} / #{sub_cat}")
-    Spaceship::ConnectAPI.patch(
-      "appInfos/#{edit_info.id}",
-      body: {
-        data: {
-          type: "appInfos",
-          id:   edit_info.id,
-          relationships: {
-            primaryCategory:       { data: { type: "appCategories", id: primary_cat } },
-            primarySubcategoryOne: { data: { type: "appCategories", id: sub_cat } },
-          },
-        },
-      }
+    edit_info.update_categories(
+      primary_category_id:       primary_cat,
+      primary_subcategory_one_id: sub_cat,
     )
     UI.success("Category set")
 
@@ -353,20 +335,11 @@ platform :ios do
     UI.message("AppInfoLocalization id=#{en_info_loc.id}")
 
     UI.message("Patching AppInfoLocalization (name/subtitle/privacy)...")
-    Spaceship::ConnectAPI.patch(
-      "appInfoLocalizations/#{en_info_loc.id}",
-      body: {
-        data: {
-          type: "appInfoLocalizations",
-          id:   en_info_loc.id,
-          attributes: {
-            name:             name,
-            subtitle:         subtitle,
-            privacyPolicyUrl: privacy_url,
-          },
-        },
-      }
-    )
+    en_info_loc.update(attributes: {
+      "name"             => name,
+      "subtitle"         => subtitle,
+      "privacyPolicyUrl" => privacy_url,
+    })
     UI.success("App name/subtitle/privacy URL updated")
 
     UI.success("All metadata uploaded to App Store Connect successfully!")
