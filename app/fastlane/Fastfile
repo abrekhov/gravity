@@ -231,6 +231,11 @@ platform :ios do
     primary_cat   = (File.read("#{meta_dir}/primary_category.txt").strip rescue "GAMES")
     sub_cat       = (File.read("#{meta_dir}/primary_first_sub_category.txt").strip rescue "GAMES_PUZZLE")
 
+    # Read version string from pubspec.yaml so it stays in sync automatically.
+    pubspec_version = File.read("../pubspec.yaml")[/^version:\s*(.+)/, 1].strip
+    version_string  = pubspec_version.split("+").first   # e.g. "0.0.1"
+    UI.message("pubspec version: #{pubspec_version}  →  App Store version: #{version_string}")
+
     app = Spaceship::ConnectAPI::App.find(bundle_id)
     raise "App not found: #{bundle_id}" unless app
     UI.message("Found app: #{app.id}")
@@ -240,14 +245,18 @@ platform :ios do
     versions    = app.get_app_store_versions(filter: { platform: "IOS" })
     edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
 
-    unless edit_version
-      UI.important("No App Store edit version — creating 1.0.0")
+    if edit_version && edit_version.version_string != version_string
+      UI.important("Renaming ASC version #{edit_version.version_string} → #{version_string}")
+      edit_version.update(attributes: { "versionString" => version_string })
+      UI.success("Version renamed")
+    elsif edit_version.nil?
+      UI.important("No App Store edit version — creating #{version_string}")
       Spaceship::ConnectAPI.post(
         "appStoreVersions",
         body: {
           data: {
             type: "appStoreVersions",
-            attributes: { platform: "IOS", versionString: "1.0.0", releaseType: "MANUAL" },
+            attributes: { platform: "IOS", versionString: version_string, releaseType: "MANUAL" },
             relationships: { app: { data: { type: "apps", id: app.id } } },
           },
         }
@@ -256,7 +265,7 @@ platform :ios do
       versions = app.get_app_store_versions(filter: { platform: "IOS" })
       edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
       raise "Failed to create App Store version" unless edit_version
-      UI.success("Created version 1.0.0")
+      UI.success("Created version #{version_string}")
     end
     UI.message("Edit version: #{edit_version.version_string} (#{edit_version.app_store_state}) id=#{edit_version.id}")
 
