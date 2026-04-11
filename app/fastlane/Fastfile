@@ -428,7 +428,6 @@ platform :ios do
             referenceName:     iap_name,
             inAppPurchaseType: "NON_CONSUMABLE",
             reviewNote:        review_note,
-            isFamilySharable:  false,
           },
           relationships: {
             app: { data: { type: "apps", id: app.id } },
