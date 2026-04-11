@@ -487,12 +487,12 @@ platform :ios do
         relationships: {
           inAppPurchase: { data: { type: "inAppPurchases", id: iap_id } },
           baseTerritory: { data: { type: "territories",   id: "USA"  } },
-          manualPrices:  { data: [{ type: "inAppPurchasePrices", id: "p1" }] },
+          manualPrices:  { data: [{ type: "inAppPurchasePrices", id: "${p1}" }] },
         },
       },
       included: [
         {
-          id:   "p1",
+          id:   "${p1}",
           type: "inAppPurchasePrices",
           attributes: { startDate: nil },
           relationships: {
