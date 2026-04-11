@@ -413,12 +413,22 @@ platform :ios do
     end
 
     # ---- 1. Find or create IAP ----
-    # List all IAPs for the app and match by productId in code
-    # (URL filter param is unreliable; fetch all and search locally)
-    all_iaps = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2")
-    UI.message("Found #{all_iaps.dig('data')&.size || 0} existing IAP(s)")
-    existing_iap = (all_iaps["data"] || []).find { |i| i.dig("attributes", "productId") == product_id }
-    iap_id = existing_iap&.dig("id")
+    # Try v2 relationship first, fall back to v1 list
+    find_iap = lambda do
+      resp = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2")
+      items = resp["data"] || []
+      UI.message("v2 list returned #{items.size} IAP(s)")
+      match = items.find { |i| i.dig("attributes", "productId") == product_id }
+      return match["id"] if match
+
+      resp2 = asc.call(:get, "/v1/apps/#{app.id}/inAppPurchases")
+      items2 = resp2["data"] || []
+      UI.message("v1 list returned #{items2.size} IAP(s)")
+      match2 = items2.find { |i| i.dig("attributes", "productId") == product_id }
+      match2&.dig("id")
+    end
+
+    iap_id = find_iap.call
 
     if iap_id
       UI.message("IAP already exists: #{iap_id}")
@@ -444,9 +454,7 @@ platform :ios do
         err = resp.dig("errors", 0, "detail") || ""
         if err.include?("already") || err.include?("duplicate")
           UI.important("Duplicate detected — re-fetching IAP list...")
-          all_iaps = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2")
-          existing_iap = (all_iaps["data"] || []).find { |i| i.dig("attributes", "productId") == product_id }
-          iap_id = existing_iap&.dig("id")
+          iap_id = find_iap.call
           raise "Could not find existing IAP after duplicate error" unless iap_id
           UI.message("Found existing IAP: #{iap_id}")
         else
