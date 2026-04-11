@@ -425,9 +425,7 @@ platform :ios do
           type: "inAppPurchases",
           attributes: {
             productId:         product_id,
-            referenceName:     iap_name,
             inAppPurchaseType: "NON_CONSUMABLE",
-            reviewNote:        review_note,
           },
           relationships: {
             app: { data: { type: "apps", id: app.id } },
@@ -435,9 +433,22 @@ platform :ios do
         },
       })
       iap_id = resp.dig("data", "id")
-      raise "Failed to create IAP: #{resp.dig('errors', 0, 'detail')}" unless iap_id
+      raise "Failed to create IAP: #{resp.dig('errors', 0, 'detail') || resp.inspect}" unless iap_id
       UI.success("Created IAP: #{iap_id}")
-      sleep 3
+
+      # Set referenceName + reviewNote via PATCH (v2 create only accepts productId + type)
+      asc.call(:patch, "/v2/inAppPurchases/#{iap_id}", body: {
+        data: {
+          type: "inAppPurchases",
+          id:   iap_id,
+          attributes: {
+            referenceName: iap_name,
+            reviewNote:    review_note,
+          },
+        },
+      })
+      UI.success("Reference name set")
+      sleep 2
     end
 
     # ---- 2. English localization (name + description) ----
