@@ -365,4 +365,143 @@ platform :ios do
 
     UI.success("Metadata upload complete!")
   end
+
+  desc "Create Premium non-consumable IAP in App Store Connect"
+  lane :setup_iap do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    # Build JWT for direct v1/v2 HTTP calls (Spaceship only exposes v1 via module functions)
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id   = "com.gravity.gravityGame"
+    product_id  = "com.gravity.gravityGame.premium"
+    price_usd   = "2.99"
+    locale      = "en-US"
+    iap_name    = "Gravitas Premium"
+    iap_desc    = "Unlock all 31 levels and remove ads forever"
+    review_note = "Tap any locked level (11-31) on the level select screen to trigger the Premium offer sheet."
+
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found: #{bundle_id}" unless app
+    UI.message("App: #{app.id}")
+
+    # Raw HTTP helper — supports any ASC API version
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    # ---- 1. Find or create IAP ----
+    existing = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2?filter[productId]=#{URI.encode_www_form_component(product_id)}")
+    iap_id   = existing.dig("data", 0, "id")
+
+    if iap_id
+      UI.message("IAP already exists: #{iap_id}")
+    else
+      UI.message("Creating IAP #{product_id}...")
+      resp   = asc.call(:post, "/v2/inAppPurchases", body: {
+        data: {
+          type: "inAppPurchases",
+          attributes: {
+            productId:         product_id,
+            referenceName:     iap_name,
+            inAppPurchaseType: "NON_CONSUMABLE",
+            reviewNote:        review_note,
+            isFamilySharable:  false,
+          },
+          relationships: {
+            app: { data: { type: "apps", id: app.id } },
+          },
+        },
+      })
+      iap_id = resp.dig("data", "id")
+      raise "Failed to create IAP: #{resp.dig('errors', 0, 'detail')}" unless iap_id
+      UI.success("Created IAP: #{iap_id}")
+      sleep 3
+    end
+
+    # ---- 2. English localization (name + description) ----
+    loc_resp = asc.call(:get, "/v1/inAppPurchaseLocalizations?filter[inAppPurchaseV2]=#{iap_id}&filter[locale]=#{locale}")
+    if loc_resp.dig("data", 0)
+      UI.message("#{locale} localization already exists")
+    else
+      UI.message("Adding #{locale} localization...")
+      asc.call(:post, "/v1/inAppPurchaseLocalizations", body: {
+        data: {
+          type: "inAppPurchaseLocalizations",
+          attributes: {
+            locale:      locale,
+            name:        iap_name,
+            description: iap_desc,
+          },
+          relationships: {
+            inAppPurchaseV2: { data: { type: "inAppPurchases", id: iap_id } },
+          },
+        },
+      })
+      UI.success("#{locale} localization added")
+    end
+
+    # ---- 3. Pricing — $2.99 base in USD, Apple auto-converts all territories ----
+    pp_resp   = asc.call(:get, "/v2/inAppPurchases/#{iap_id}/pricePoints?filter[territory]=USA")
+    price_pts = pp_resp["data"] || []
+    target_pp = price_pts.find { |pp| pp.dig("attributes", "customerPrice") == price_usd }
+    raise "Price point $#{price_usd} not found. Sample available: #{price_pts.map { |pp| pp.dig('attributes', 'customerPrice') }.compact.sort.first(8).join(', ')}" unless target_pp
+    UI.message("Price point $#{price_usd} → id=#{target_pp['id']}")
+
+    sched_resp = asc.call(:post, "/v1/inAppPurchasePriceSchedules", body: {
+      data: {
+        type: "inAppPurchasePriceSchedules",
+        relationships: {
+          inAppPurchase: { data: { type: "inAppPurchases", id: iap_id } },
+          baseTerritory: { data: { type: "territories",   id: "USA"  } },
+          manualPrices:  { data: [{ type: "inAppPurchasePrices", id: "p1" }] },
+        },
+      },
+      included: [
+        {
+          id:   "p1",
+          type: "inAppPurchasePrices",
+          attributes: { startDate: nil },
+          relationships: {
+            inAppPurchasePricePoint: { data: { type: "inAppPurchasePricePoints", id: target_pp["id"] } },
+            territory:               { data: { type: "territories",              id: "USA"            } },
+          },
+        },
+      ],
+    })
+
+    if sched_resp.dig("errors")
+      detail = sched_resp["errors"].map { |e| e["detail"] }.join(", ")
+      # "price schedule already exists" on a re-run is not a real error
+      UI.important("Pricing note: #{detail}")
+    else
+      UI.success("Price set to $#{price_usd} (Apple auto-converts all other territories)")
+    end
+
+    UI.success("IAP setup complete!")
+    UI.success("Product ID : #{product_id}")
+    UI.important("Still needed: upload a paywall screenshot in ASC → your app → IAP → #{iap_name} → Review Information")
+  end
 end
