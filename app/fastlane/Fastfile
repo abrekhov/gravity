@@ -426,6 +426,7 @@ platform :ios do
           attributes: {
             productId:         product_id,
             inAppPurchaseType: "NON_CONSUMABLE",
+            name:              iap_name,
           },
           relationships: {
             app: { data: { type: "apps", id: app.id } },
