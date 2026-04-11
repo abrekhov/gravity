@@ -413,19 +413,31 @@ platform :ios do
     end
 
     # ---- 1. Find or create IAP ----
-    # Try v2 relationship first, fall back to v1 list
+    # Tries multiple endpoints because the relationship endpoints sometimes return
+    # 0 results even when an IAP exists (state filtering / pagination quirks).
     find_iap = lambda do
-      resp = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2")
+      # 1a. v2 relationship endpoint
+      resp = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2?limit=200")
       items = resp["data"] || []
-      UI.message("v2 list returned #{items.size} IAP(s)")
+      UI.message("v2 relationship: #{items.size} item(s) | errors=#{resp['errors']&.map { |e| e['detail'] }&.inspect}")
       match = items.find { |i| i.dig("attributes", "productId") == product_id }
       return match["id"] if match
 
-      resp2 = asc.call(:get, "/v1/apps/#{app.id}/inAppPurchases")
+      # 1b. v1 relationship endpoint
+      resp2 = asc.call(:get, "/v1/apps/#{app.id}/inAppPurchases?limit=200")
       items2 = resp2["data"] || []
-      UI.message("v1 list returned #{items2.size} IAP(s)")
+      UI.message("v1 relationship: #{items2.size} item(s) | product IDs: #{items2.map { |i| i.dig('attributes','productId') }.join(', ')}")
       match2 = items2.find { |i| i.dig("attributes", "productId") == product_id }
-      match2&.dig("id")
+      return match2["id"] if match2
+
+      # 1c. v1 top-level collection filtered by app (different query path from relationship)
+      resp3 = asc.call(:get, "/v1/inAppPurchases?filter[app]=#{app.id}&limit=200")
+      items3 = resp3["data"] || []
+      UI.message("v1 top-level: #{items3.size} item(s) | product IDs: #{items3.map { |i| i.dig('attributes','productId') }.join(', ')}")
+      match3 = items3.find { |i| i.dig("attributes", "productId") == product_id }
+      return match3["id"] if match3
+
+      nil
     end
 
     iap_id = find_iap.call
@@ -450,19 +462,23 @@ platform :ios do
       iap_id = resp.dig("data", "id")
 
       unless iap_id
-        # Could be a duplicate from a previous run — re-fetch to find existing ID
         err = resp.dig("errors", 0, "detail") || ""
-        if err.include?("already") || err.include?("duplicate")
+        err_title = resp.dig("errors", 0, "title") || ""
+        UI.message("Create response (no id): #{resp.to_json[0..800]}")
+
+        if err.include?("already") || err_title.include?("already") ||
+           err.include?("duplicate") || err_title.include?("duplicate") ||
+           err.include?("being used") || err_title.include?("being used")
           UI.important("Duplicate detected — re-fetching IAP list...")
           iap_id = find_iap.call
-          raise "Could not find existing IAP after duplicate error" unless iap_id
+          raise "Could not find existing IAP after duplicate error.\nFull create response: #{resp.to_json}" unless iap_id
           UI.message("Found existing IAP: #{iap_id}")
         else
-          raise "Failed to create IAP: #{err.empty? ? resp.inspect : err}"
+          raise "Failed to create IAP: #{err.empty? ? resp.inspect : "#{err_title} — #{err}"}"
         end
       else
         UI.success("Created IAP: #{iap_id}")
-        # Set reviewNote via PATCH
+        # Set reviewNote via PATCH (not accepted in the CREATE body)
         asc.call(:patch, "/v2/inAppPurchases/#{iap_id}", body: {
           data: { type: "inAppPurchases", id: iap_id,
                   attributes: { reviewNote: review_note } },
