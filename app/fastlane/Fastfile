@@ -413,8 +413,12 @@ platform :ios do
     end
 
     # ---- 1. Find or create IAP ----
-    existing = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2?filter[productId]=#{URI.encode_www_form_component(product_id)}")
-    iap_id   = existing.dig("data", 0, "id")
+    # List all IAPs for the app and match by productId in code
+    # (URL filter param is unreliable; fetch all and search locally)
+    all_iaps = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2")
+    UI.message("Found #{all_iaps.dig('data')&.size || 0} existing IAP(s)")
+    existing_iap = (all_iaps["data"] || []).find { |i| i.dig("attributes", "productId") == product_id }
+    iap_id = existing_iap&.dig("id")
 
     if iap_id
       UI.message("IAP already exists: #{iap_id}")
@@ -434,22 +438,30 @@ platform :ios do
         },
       })
       iap_id = resp.dig("data", "id")
-      raise "Failed to create IAP: #{resp.dig('errors', 0, 'detail') || resp.inspect}" unless iap_id
-      UI.success("Created IAP: #{iap_id}")
 
-      # Set referenceName + reviewNote via PATCH (v2 create only accepts productId + type)
-      asc.call(:patch, "/v2/inAppPurchases/#{iap_id}", body: {
-        data: {
-          type: "inAppPurchases",
-          id:   iap_id,
-          attributes: {
-            referenceName: iap_name,
-            reviewNote:    review_note,
-          },
-        },
-      })
-      UI.success("Reference name set")
-      sleep 2
+      unless iap_id
+        # Could be a duplicate from a previous run — re-fetch to find existing ID
+        err = resp.dig("errors", 0, "detail") || ""
+        if err.include?("already") || err.include?("duplicate")
+          UI.important("Duplicate detected — re-fetching IAP list...")
+          all_iaps = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2")
+          existing_iap = (all_iaps["data"] || []).find { |i| i.dig("attributes", "productId") == product_id }
+          iap_id = existing_iap&.dig("id")
+          raise "Could not find existing IAP after duplicate error" unless iap_id
+          UI.message("Found existing IAP: #{iap_id}")
+        else
+          raise "Failed to create IAP: #{err.empty? ? resp.inspect : err}"
+        end
+      else
+        UI.success("Created IAP: #{iap_id}")
+        # Set reviewNote via PATCH
+        asc.call(:patch, "/v2/inAppPurchases/#{iap_id}", body: {
+          data: { type: "inAppPurchases", id: iap_id,
+                  attributes: { reviewNote: review_note } },
+        })
+        UI.success("Review note set")
+        sleep 2
+      end
     end
 
     # ---- 2. English localization (name + description) ----
