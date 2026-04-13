@@ -433,7 +433,6 @@ platform :ios do
           profanityOrCrudeHumor:                        "NONE",
           sexualContentGraphicAndNudity:                "NONE",
           sexualContentOrNudity:                        "NONE",
-          seventeenPlus:                                false,
           unrestrictedWebAccess:                        false,
           violenceCartoonOrFantasy:                     "NONE",
           violenceRealistic:                            "NONE",
@@ -484,10 +483,15 @@ platform :ios do
       JSON.parse(resp.body) rescue {}
     end
 
-    # Find the latest valid iOS build via raw API (Build.all filter: syntax unsupported here)
-    builds_resp = asc.call(:get, "/v1/builds?filter[app]=#{app.id}&filter[processingState]=VALID&filter[platform]=IOS&sort=-uploadedDate&limit=1")
-    latest_build = builds_resp.dig("data", 0)
-    raise "No valid iOS builds found in TestFlight" unless latest_build
+    # Find the latest valid iOS build via raw API
+    builds_resp = asc.call(:get, "/v1/builds?filter[app]=#{app.id}&sort=-uploadedDate&limit=20")
+    all_builds  = builds_resp["data"] || []
+    UI.message("Total builds fetched: #{all_builds.size}")
+    latest_build = all_builds.find do |b|
+      b.dig("attributes", "processingState") == "VALID" &&
+      b.dig("attributes", "platform") == "IOS"
+    end
+    raise "No valid iOS builds found in TestFlight (#{all_builds.size} total, states: #{all_builds.map { |b| b.dig('attributes','processingState') }.uniq.join(',')})" unless latest_build
     latest_build_id      = latest_build["id"]
     latest_build_version = latest_build.dig("attributes", "version")
     UI.message("Latest build: version=#{latest_build_version} id=#{latest_build_id}")
