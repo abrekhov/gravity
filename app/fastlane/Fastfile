@@ -487,11 +487,17 @@ platform :ios do
     builds_resp = asc.call(:get, "/v1/builds?filter[app]=#{app.id}&sort=-uploadedDate&limit=20")
     all_builds  = builds_resp["data"] || []
     UI.message("Total builds fetched: #{all_builds.size}")
+    if all_builds.first
+      sample = all_builds.first["attributes"] || {}
+      UI.message("Sample build attrs: processingState=#{sample['processingState']} platform=#{sample['platform']} minOsVersion=#{sample['minOsVersion']}")
+    end
     latest_build = all_builds.find do |b|
       b.dig("attributes", "processingState") == "VALID" &&
       b.dig("attributes", "platform") == "IOS"
     end
-    raise "No valid iOS builds found in TestFlight (#{all_builds.size} total, states: #{all_builds.map { |b| b.dig('attributes','processingState') }.uniq.join(',')})" unless latest_build
+    # Fallback: any VALID build if platform key is absent/different
+    latest_build ||= all_builds.find { |b| b.dig("attributes", "processingState") == "VALID" }
+    raise "No valid iOS builds found in TestFlight (#{all_builds.size} total, states: #{all_builds.map { |b| b.dig('attributes','processingState') }.uniq.join(',')}, platforms: #{all_builds.map { |b| b.dig('attributes','platform') }.uniq.join(',')})" unless latest_build
     latest_build_id      = latest_build["id"]
     latest_build_version = latest_build.dig("attributes", "version")
     UI.message("Latest build: version=#{latest_build_version} id=#{latest_build_id}")
