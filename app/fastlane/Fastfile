@@ -408,7 +408,13 @@ platform :ios do
     raise "No edit version found in ASC" unless edit_version
     UI.message("Edit version: #{edit_version.version_string} (#{edit_version.id})")
 
-    ar_resp = asc.call(:get, "/v1/appStoreVersions/#{edit_version.id}/ageRatingDeclaration")
+    # ageRatingDeclaration lives on AppInfo, not AppStoreVersion
+    app_infos = Spaceship::ConnectAPI.get_app_infos(app_id: app.id).to_models
+    edit_info = app_infos.find { |i| i.app_store_state == "PREPARE_FOR_SUBMISSION" } || app_infos.first
+    raise "No AppInfo found" unless edit_info
+    UI.message("AppInfo id=#{edit_info.id}")
+
+    ar_resp = asc.call(:get, "/v1/appInfos/#{edit_info.id}/ageRatingDeclaration")
     ar_id   = ar_resp.dig("data", "id")
     raise "ageRatingDeclaration not found: #{ar_resp.inspect}" unless ar_id
     UI.message("ageRatingDeclaration id=#{ar_id}")
@@ -478,15 +484,13 @@ platform :ios do
       JSON.parse(resp.body) rescue {}
     end
 
-    # Find the latest valid iOS build
-    builds = Spaceship::ConnectAPI::Build.all(
-      filter: { app: app.id, processingState: "VALID", platform: "IOS" },
-      sort:   "-uploadedDate",
-      limit:  1,
-    )
-    latest_build = builds.first
+    # Find the latest valid iOS build via raw API (Build.all filter: syntax unsupported here)
+    builds_resp = asc.call(:get, "/v1/builds?filter[app]=#{app.id}&filter[processingState]=VALID&filter[platform]=IOS&sort=-uploadedDate&limit=1")
+    latest_build = builds_resp.dig("data", 0)
     raise "No valid iOS builds found in TestFlight" unless latest_build
-    UI.message("Latest build: version=#{latest_build.version} id=#{latest_build.id}")
+    latest_build_id      = latest_build["id"]
+    latest_build_version = latest_build.dig("attributes", "version")
+    UI.message("Latest build: version=#{latest_build_version} id=#{latest_build_id}")
 
     # Find the edit version
     edit_states  = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
@@ -500,7 +504,7 @@ platform :ios do
         type: "appStoreVersions",
         id:   edit_version.id,
         relationships: {
-          build: { data: { type: "builds", id: latest_build.id } },
+          build: { data: { type: "builds", id: latest_build_id } },
         },
       },
     })
@@ -508,7 +512,7 @@ platform :ios do
     if result["errors"]
       raise "Attach build failed: #{result['errors'].map { |e| e['detail'] }.join(', ')}"
     end
-    UI.success("Build #{latest_build.version} attached to App Store version #{edit_version.version_string}")
+    UI.success("Build #{latest_build_version} attached to App Store version #{edit_version.version_string}")
   end
 
   desc "Create Premium non-consumable IAP in App Store Connect"
@@ -585,7 +589,8 @@ platform :ios do
       nil
     end
 
-    iap_id = find_iap.call
+    iap_id          = find_iap.call
+    iap_just_created = false
 
     if iap_id
       UI.message("IAP already exists: #{iap_id}")
@@ -623,6 +628,7 @@ platform :ios do
         end
       else
         UI.success("Created IAP: #{iap_id}")
+        iap_just_created = true
         # Set reviewNote via PATCH (not accepted in the CREATE body)
         asc.call(:patch, "/v2/inAppPurchases/#{iap_id}", body: {
           data: { type: "inAppPurchases", id: iap_id,
@@ -656,11 +662,19 @@ platform :ios do
     end
 
     # ---- 3. Pricing — $2.99 base in USD, Apple auto-converts all territories ----
+    # v1 and v2 use different ID formats for the same IAP resource.
+    # When iap_id came from the v1 list (UUID), the v2 pricePoints endpoint won't return
+    # data for it — but the price was already set in a prior run. Skip gracefully.
     pp_resp   = asc.call(:get, "/v2/inAppPurchases/#{iap_id}/pricePoints?filter[territory]=USA")
     price_pts = pp_resp["data"] || []
     target_pp = price_pts.find { |pp| pp.dig("attributes", "customerPrice") == price_usd }
-    raise "Price point $#{price_usd} not found. Sample available: #{price_pts.map { |pp| pp.dig('attributes', 'customerPrice') }.compact.sort.first(8).join(', ')}" unless target_pp
-    UI.message("Price point $#{price_usd} → id=#{target_pp['id']}")
+
+    if target_pp.nil? && !iap_just_created
+      UI.important("Price points unavailable for existing IAP (v1/v2 ID mismatch) — price was set in a prior run, skipping")
+    elsif target_pp.nil?
+      raise "Price point $#{price_usd} not found. Available: #{price_pts.map { |pp| pp.dig('attributes', 'customerPrice') }.compact.sort.first(8).join(', ')}"
+    else
+      UI.message("Price point $#{price_usd} → id=#{target_pp['id']}")
 
     sched_resp = asc.call(:post, "/v1/inAppPurchasePriceSchedules", body: {
       data: {
@@ -691,6 +705,7 @@ platform :ios do
     else
       UI.success("Price set to $#{price_usd} (Apple auto-converts all other territories)")
     end
+    end  # closes the target_pp else branch
 
     UI.success("IAP setup complete!")
     UI.success("Product ID : #{product_id}")
