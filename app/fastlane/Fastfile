@@ -366,6 +366,151 @@ platform :ios do
     UI.success("Metadata upload complete!")
   end
 
+  desc "Set age rating to 4+ (puzzle game, no mature content)"
+  lane :set_age_rating do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id = "com.gravity.gravityGame"
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found: #{bundle_id}" unless app
+
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+    versions    = app.get_app_store_versions(filter: { platform: "IOS" })
+    edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    raise "No edit version found in ASC" unless edit_version
+    UI.message("Edit version: #{edit_version.version_string} (#{edit_version.id})")
+
+    ar_resp = asc.call(:get, "/v1/appStoreVersions/#{edit_version.id}/ageRatingDeclaration")
+    ar_id   = ar_resp.dig("data", "id")
+    raise "ageRatingDeclaration not found: #{ar_resp.inspect}" unless ar_id
+    UI.message("ageRatingDeclaration id=#{ar_id}")
+
+    result = asc.call(:patch, "/v1/ageRatingDeclarations/#{ar_id}", body: {
+      data: {
+        type: "ageRatingDeclarations",
+        id:   ar_id,
+        attributes: {
+          alcoholTobaccoOrDrugUseOrReferences:         "NONE",
+          contests:                                     "NONE",
+          gambling:                                     false,
+          horrorOrFearThemes:                           "NONE",
+          matureOrSuggestiveThemes:                     "NONE",
+          medicalOrTreatmentInformation:               "NONE",
+          profanityOrCrudeHumor:                        "NONE",
+          sexualContentGraphicAndNudity:                "NONE",
+          sexualContentOrNudity:                        "NONE",
+          seventeenPlus:                                false,
+          unrestrictedWebAccess:                        false,
+          violenceCartoonOrFantasy:                     "NONE",
+          violenceRealistic:                            "NONE",
+          violenceRealisticProlongedGraphicOrSadistic:  "NONE",
+        },
+      },
+    })
+
+    if result["errors"]
+      raise "Age rating update failed: #{result['errors'].map { |e| e['detail'] }.join(', ')}"
+    end
+    UI.success("Age rating set → 4+ (all categories NONE / false)")
+  end
+
+  desc "Attach latest valid TestFlight build to the App Store edit version"
+  lane :attach_build do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id = "com.gravity.gravityGame"
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found: #{bundle_id}" unless app
+
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    # Find the latest valid iOS build
+    builds = Spaceship::ConnectAPI::Build.all(
+      filter: { app: app.id, processingState: "VALID", platform: "IOS" },
+      sort:   "-uploadedDate",
+      limit:  1,
+    )
+    latest_build = builds.first
+    raise "No valid iOS builds found in TestFlight" unless latest_build
+    UI.message("Latest build: version=#{latest_build.version} id=#{latest_build.id}")
+
+    # Find the edit version
+    edit_states  = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+    versions     = app.get_app_store_versions(filter: { platform: "IOS" })
+    edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    raise "No edit version found in ASC" unless edit_version
+    UI.message("Edit version: #{edit_version.version_string} (#{edit_version.id})")
+
+    result = asc.call(:patch, "/v1/appStoreVersions/#{edit_version.id}", body: {
+      data: {
+        type: "appStoreVersions",
+        id:   edit_version.id,
+        relationships: {
+          build: { data: { type: "builds", id: latest_build.id } },
+        },
+      },
+    })
+
+    if result["errors"]
+      raise "Attach build failed: #{result['errors'].map { |e| e['detail'] }.join(', ')}"
+    end
+    UI.success("Build #{latest_build.version} attached to App Store version #{edit_version.version_string}")
+  end
+
   desc "Create Premium non-consumable IAP in App Store Connect"
   lane :setup_iap do
     require 'net/http'
