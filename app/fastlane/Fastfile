@@ -306,6 +306,10 @@ platform :ios do
     })
     UI.success("Version localization updated")
 
+    UI.message("Setting copyright...")
+    edit_version.update(attributes: { "copyright" => "© 2025 Andrei Brekhov" })
+    UI.success("Copyright set")
+
     # ---- 3. AppInfo + AppInfoLocalization (name, subtitle, category, privacy URL) ----
     # app.get_app_infos is not available in all Spaceship versions; use the module function.
     begin
