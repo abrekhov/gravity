@@ -370,6 +370,20 @@ platform :ios do
     UI.success("Metadata upload complete!")
   end
 
+  desc "Check App Store version status"
+  lane :check_status do
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+    app = Spaceship::ConnectAPI::App.find("com.gravity.gravityGame")
+    versions = app.get_app_store_versions(filter: { platform: "IOS" })
+    versions.each do |v|
+      UI.message("Version #{v.version_string} — state: #{v.app_store_state}")
+    end
+  end
+
   desc "Set age rating to 4+ (puzzle game, no mature content)"
   lane :set_age_rating do
     require 'net/http'
