@@ -439,13 +439,20 @@ platform :ios do
     detail_resp = asc.call(:get, "/v1/appStoreVersions/#{edit_version.id}/appStoreReviewDetail")
     detail_id   = detail_resp.dig("data", "id")
 
+    contact = {
+      contactFirstName: "Anton",
+      contactLastName:  "Brekhov",
+      contactEmail:     "tony.brekhov@gmail.com",
+      contactPhone:     "+31685858923",
+    }
+
     if detail_id
       UI.message("Updating existing review detail #{detail_id}...")
       result = asc.call(:patch, "/v1/appStoreReviewDetails/#{detail_id}", body: {
         data: {
           type:       "appStoreReviewDetails",
           id:         detail_id,
-          attributes: { notes: notes },
+          attributes: contact.merge(notes: notes),
         },
       })
     else
@@ -453,7 +460,7 @@ platform :ios do
       result = asc.call(:post, "/v1/appStoreReviewDetails", body: {
         data: {
           type:       "appStoreReviewDetails",
-          attributes: { notes: notes },
+          attributes: contact.merge(notes: notes),
           relationships: {
             appStoreVersion: { data: { type: "appStoreVersions", id: edit_version.id } },
           },
