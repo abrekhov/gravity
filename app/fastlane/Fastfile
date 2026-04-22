@@ -241,9 +241,11 @@ platform :ios do
     UI.message("Found app: #{app.id}")
 
     # ---- 1. App Store Version ----
-    edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+    edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED REJECTED WAITING_FOR_REVIEW IN_REVIEW]
     versions    = app.get_app_store_versions(filter: { platform: "IOS" })
+    versions.each { |v| UI.message("ASC version: #{v.version_string} — #{v.app_store_state}") }
     edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    edit_version ||= versions.find { |v| v.app_store_state != "READY_FOR_SALE" }
 
     if edit_version && edit_version.version_string != version_string
       UI.important("Renaming ASC version #{edit_version.version_string} → #{version_string}")
