@@ -370,6 +370,103 @@ platform :ios do
     UI.success("Metadata upload complete!")
   end
 
+  desc "Fill App Review Information notes for Apple reviewer"
+  lane :set_review_notes do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id = "com.gravity.gravityGame"
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found" unless app
+
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    edit_states  = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED WAITING_FOR_REVIEW IN_REVIEW]
+    versions     = app.get_app_store_versions(filter: { platform: "IOS" })
+    edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    raise "No reviewable version found" unless edit_version
+    UI.message("Version: #{edit_version.version_string} (#{edit_version.app_store_state})")
+
+    notes = <<~NOTES
+      PURPOSE
+      Gravitas: Space Puzzles is a physics-based mobile puzzle game. The player pilots a spacecraft through space, using gravitational pull from black holes to navigate to the goal. The app offers 31 levels of increasing difficulty. Levels 1–10 are free; levels 11–31 unlock via a one-time in-app purchase (Gravitas Premium, $2.99).
+
+      HOW TO REVIEW
+      1. Launch the app — the main menu appears immediately. No login or account required.
+      2. Tap "Play" to open the level select screen.
+      3. Tap any level 1–10 to play. Drag to aim the ship trajectory, release to launch.
+      4. Tap any level 11–31 (shown with a lock icon) to trigger the Premium purchase overlay.
+      5. To test the IAP: use a Sandbox Apple ID. The "Restore Purchases" button is available in the Premium overlay.
+      6. Ads (interstitial) appear for free users between levels. Premium users see no ads.
+
+      EXTERNAL SERVICES
+      - Google AdMob: interstitial ads shown to free users between levels
+      - Apple StoreKit / In-App Purchases: one-time non-consumable (com.gravity.gravityGame.premium, $2.99)
+
+      REGIONAL DIFFERENCES
+      The app functions consistently across all regions. Ad availability may vary by region (controlled by Google AdMob), but core gameplay is identical everywhere.
+
+      NO ACCOUNT REQUIRED
+      The app does not require registration, login, or any personal data entry.
+    NOTES
+
+    # Check for existing review detail
+    detail_resp = asc.call(:get, "/v1/appStoreVersions/#{edit_version.id}/appStoreReviewDetail")
+    detail_id   = detail_resp.dig("data", "id")
+
+    if detail_id
+      UI.message("Updating existing review detail #{detail_id}...")
+      result = asc.call(:patch, "/v1/appStoreReviewDetails/#{detail_id}", body: {
+        data: {
+          type:       "appStoreReviewDetails",
+          id:         detail_id,
+          attributes: { notes: notes },
+        },
+      })
+    else
+      UI.message("Creating review detail...")
+      result = asc.call(:post, "/v1/appStoreReviewDetails", body: {
+        data: {
+          type:       "appStoreReviewDetails",
+          attributes: { notes: notes },
+          relationships: {
+            appStoreVersion: { data: { type: "appStoreVersions", id: edit_version.id } },
+          },
+        },
+      })
+    end
+
+    if result["errors"]
+      raise "Review notes error: #{result['errors'].map { |e| e['detail'] }.join(', ')}"
+    end
+    UI.success("App Review notes set successfully!")
+  end
+
   desc "Check App Store version status"
   lane :check_status do
     app_store_connect_api_key(
