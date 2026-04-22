@@ -626,10 +626,12 @@ platform :ios do
     latest_build_version = latest_build.dig("attributes", "version")
     UI.message("Latest build: version=#{latest_build_version} id=#{latest_build_id}")
 
-    # Find the edit version
-    edit_states  = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+    # Find the edit version (include REJECTED — Apple sets this state after info requests)
+    edit_states  = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED REJECTED WAITING_FOR_REVIEW IN_REVIEW]
     versions     = app.get_app_store_versions(filter: { platform: "IOS" })
+    versions.each { |v| UI.message("ASC version: #{v.version_string} — #{v.app_store_state}") }
     edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    edit_version ||= versions.find { |v| v.app_store_state != "READY_FOR_SALE" }
     raise "No edit version found in ASC" unless edit_version
     UI.message("Edit version: #{edit_version.version_string} (#{edit_version.id})")
 
