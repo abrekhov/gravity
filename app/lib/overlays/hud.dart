@@ -107,6 +107,34 @@ class _HUDOverlayState extends State<HUDOverlay> {
             }),
           ),
         ),
+        // Menu button — top center
+        Positioned(
+          top: 14,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: GestureDetector(
+              onTap: () => widget.game.goToMenu(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0C1A28).withOpacity(0.75),
+                  border: Border.all(color: const Color(0xFF2A4060), width: 1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  '≡  MENU',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: Color(0xFF5A7090),
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
         // Aim hint — bottom center
         if (_hintVisible)
           const Positioned(
