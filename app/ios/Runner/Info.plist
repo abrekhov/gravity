@@ -43,6 +43,8 @@
 	</array>
 	<!-- AdMob: replace the value with your real App ID from admob.google.com.
 	     The ID below is Google's test App ID — safe for development. -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This identifier will be used to show you relevant ads. You can opt out at any time in Settings.</string>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-7949208513831938~7936577832</string>
 	<!-- SKAdNetwork IDs required by google_mobile_ads (v5+).

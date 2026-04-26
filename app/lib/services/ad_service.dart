@@ -1,3 +1,4 @@
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
@@ -22,6 +23,7 @@ class AdService {
   static const _maxRetries = 3;
 
   Future<void> initialize() async {
+    await _requestTrackingPermission();
     final status = await MobileAds.instance.initialize();
     // Log adapter statuses to help diagnose "no fill" issues.
     if (kDebugMode) {
@@ -30,6 +32,14 @@ class AdService {
       }
     }
     preload();
+  }
+
+  Future<void> _requestTrackingPermission() async {
+    if (kIsWeb) return;
+    final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    if (status == TrackingStatus.notDetermined) {
+      await AppTrackingTransparency.requestTrackingAuthorization();
+    }
   }
 
   void preload() {
