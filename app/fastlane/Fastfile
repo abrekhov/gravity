@@ -363,9 +363,11 @@ platform :ios do
     UI.message("Found app: #{app.id}")
 
     # ---- 1. App Store Version ----
-    edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+    edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED REJECTED WAITING_FOR_REVIEW IN_REVIEW]
     versions    = app.get_app_store_versions(filter: { platform: "IOS" })
+    versions.each { |v| UI.message("ASC version: #{v.version_string} — #{v.app_store_state}") }
     edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    edit_version ||= versions.find { |v| v.app_store_state != "READY_FOR_SALE" }
 
     if edit_version && edit_version.version_string != version_string
       UI.important("Renaming ASC version #{edit_version.version_string} → #{version_string}")
@@ -428,6 +430,11 @@ platform :ios do
     })
     UI.success("Version localization updated")
 
+    UI.message("Setting copyright...")
+    edit_version.update(attributes: { "copyright" => "© 2025 Anton Brekhov" })
+    UI.success("Copyright set")
+
+
     # ---- 3. AppInfo + AppInfoLocalization (name, subtitle, category, privacy URL) ----
     # app.get_app_infos is not available in all Spaceship versions; use the module function.
     begin
@@ -486,5 +493,377 @@ platform :ios do
     end
 
     UI.success("Metadata upload complete!")
+  end
+
+  desc "Check App Store version status"
+  lane :check_status do
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+    app = Spaceship::ConnectAPI::App.find("com.gravity.gravityGame")
+    versions = app.get_app_store_versions(filter: { platform: "IOS" })
+    versions.each do |v|
+      UI.message("Version #{v.version_string} — state: #{v.app_store_state}")
+    end
+  end
+
+  desc "Set age rating to 4+ (puzzle game, no mature content)"
+  lane :set_age_rating do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id = "com.gravity.gravityGame"
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found: #{bundle_id}" unless app
+
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    edit_states = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED]
+    versions    = app.get_app_store_versions(filter: { platform: "IOS" })
+    edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    raise "No edit version found in ASC" unless edit_version
+    UI.message("Edit version: #{edit_version.version_string} (#{edit_version.id})")
+
+    # ageRatingDeclaration lives on AppInfo, not AppStoreVersion
+    app_infos = Spaceship::ConnectAPI.get_app_infos(app_id: app.id).to_models
+    edit_info = app_infos.find { |i| i.app_store_state == "PREPARE_FOR_SUBMISSION" } || app_infos.first
+    raise "No AppInfo found" unless edit_info
+    UI.message("AppInfo id=#{edit_info.id}")
+
+    ar_resp = asc.call(:get, "/v1/appInfos/#{edit_info.id}/ageRatingDeclaration")
+    ar_id   = ar_resp.dig("data", "id")
+    raise "ageRatingDeclaration not found: #{ar_resp.inspect}" unless ar_id
+    UI.message("ageRatingDeclaration id=#{ar_id}")
+
+    result = asc.call(:patch, "/v1/ageRatingDeclarations/#{ar_id}", body: {
+      data: {
+        type: "ageRatingDeclarations",
+        id:   ar_id,
+        attributes: {
+          alcoholTobaccoOrDrugUseOrReferences:         "NONE",
+          contests:                                     "NONE",
+          gambling:                                     false,
+          horrorOrFearThemes:                           "NONE",
+          matureOrSuggestiveThemes:                     "NONE",
+          medicalOrTreatmentInformation:               "NONE",
+          profanityOrCrudeHumor:                        "NONE",
+          sexualContentGraphicAndNudity:                "NONE",
+          sexualContentOrNudity:                        "NONE",
+          unrestrictedWebAccess:                        false,
+          violenceCartoonOrFantasy:                     "NONE",
+          violenceRealistic:                            "NONE",
+          violenceRealisticProlongedGraphicOrSadistic:  "NONE",
+        },
+      },
+    })
+
+    if result["errors"]
+      raise "Age rating update failed: #{result['errors'].map { |e| e['detail'] }.join(', ')}"
+    end
+    UI.success("Age rating set → 4+ (all categories NONE / false)")
+  end
+
+  desc "Attach latest valid TestFlight build to the App Store edit version"
+  lane :attach_build do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id = "com.gravity.gravityGame"
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found: #{bundle_id}" unless app
+
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    # Find the latest valid iOS build via raw API
+    builds_resp = asc.call(:get, "/v1/builds?filter[app]=#{app.id}&sort=-uploadedDate&limit=20")
+    all_builds  = builds_resp["data"] || []
+    UI.message("Total builds fetched: #{all_builds.size}")
+    if all_builds.first
+      sample = all_builds.first["attributes"] || {}
+      UI.message("Sample build attrs: processingState=#{sample['processingState']} platform=#{sample['platform']} minOsVersion=#{sample['minOsVersion']}")
+    end
+    latest_build = all_builds.find do |b|
+      b.dig("attributes", "processingState") == "VALID" &&
+      b.dig("attributes", "platform") == "IOS"
+    end
+    # Fallback: any VALID build if platform key is absent/different
+    latest_build ||= all_builds.find { |b| b.dig("attributes", "processingState") == "VALID" }
+    raise "No valid iOS builds found in TestFlight (#{all_builds.size} total, states: #{all_builds.map { |b| b.dig('attributes','processingState') }.uniq.join(',')}, platforms: #{all_builds.map { |b| b.dig('attributes','platform') }.uniq.join(',')})" unless latest_build
+    latest_build_id      = latest_build["id"]
+    latest_build_version = latest_build.dig("attributes", "version")
+    UI.message("Latest build: version=#{latest_build_version} id=#{latest_build_id}")
+
+    # Find the edit version (include REJECTED — Apple sets this state after info requests)
+    edit_states  = %w[PREPARE_FOR_SUBMISSION DEVELOPER_REJECTED METADATA_REJECTED REJECTED WAITING_FOR_REVIEW IN_REVIEW]
+    versions     = app.get_app_store_versions(filter: { platform: "IOS" })
+    versions.each { |v| UI.message("ASC version: #{v.version_string} — #{v.app_store_state}") }
+    edit_version = versions.find { |v| edit_states.include?(v.app_store_state) }
+    edit_version ||= versions.find { |v| v.app_store_state != "READY_FOR_SALE" }
+    raise "No edit version found in ASC" unless edit_version
+    UI.message("Edit version: #{edit_version.version_string} (#{edit_version.id})")
+
+    result = asc.call(:patch, "/v1/appStoreVersions/#{edit_version.id}", body: {
+      data: {
+        type: "appStoreVersions",
+        id:   edit_version.id,
+        relationships: {
+          build: { data: { type: "builds", id: latest_build_id } },
+        },
+      },
+    })
+
+    if result["errors"]
+      raise "Attach build failed: #{result['errors'].map { |e| e['detail'] }.join(', ')}"
+    end
+    UI.success("Build #{latest_build_version} attached to App Store version #{edit_version.version_string}")
+  end
+
+  desc "Create Premium non-consumable IAP in App Store Connect"
+  lane :setup_iap do
+    require 'net/http'
+    require 'json'
+
+    app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    # Build JWT for direct v1/v2 HTTP calls (Spaceship only exposes v1 via module functions)
+    jwt = Spaceship::ConnectAPI::Token.create(
+      key_id:    ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key:       ENV["ASC_API_KEY"],
+      duration:  1200,
+      in_house:  false,
+    ).text
+
+    bundle_id   = "com.gravity.gravityGame"
+    product_id  = "com.gravity.gravityGame.premium"
+    price_usd   = "2.99"
+    locale      = "en-US"
+    iap_name    = "Gravitas Premium"
+    iap_desc    = "Unlock all 31 levels and remove ads forever"
+    review_note = "Tap any locked level (11-31) on the level select screen to trigger the Premium offer sheet."
+
+    app = Spaceship::ConnectAPI::App.find(bundle_id)
+    raise "App not found: #{bundle_id}" unless app
+    UI.message("App: #{app.id}")
+
+    # Raw HTTP helper — supports any ASC API version
+    asc = ->(method, path, body: nil) do
+      uri  = URI("https://api.appstoreconnect.apple.com#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      cls  = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch }[method]
+      req  = cls.new(uri.to_s)
+      req["Authorization"] = "Bearer #{jwt}"
+      req["Content-Type"]  = "application/json"
+      req.body = body.to_json if body
+      resp = http.request(req)
+      JSON.parse(resp.body) rescue {}
+    end
+
+    # ---- 1. Find or create IAP ----
+    # Tries multiple endpoints because the relationship endpoints sometimes return
+    # 0 results even when an IAP exists (state filtering / pagination quirks).
+    find_iap = lambda do
+      # 1a. v2 relationship endpoint
+      resp = asc.call(:get, "/v2/apps/#{app.id}/inAppPurchasesV2?limit=200")
+      items = resp["data"] || []
+      UI.message("v2 relationship: #{items.size} item(s) | errors=#{resp['errors']&.map { |e| e['detail'] }&.inspect}")
+      match = items.find { |i| i.dig("attributes", "productId") == product_id }
+      return match["id"] if match
+
+      # 1b. v1 relationship endpoint
+      resp2 = asc.call(:get, "/v1/apps/#{app.id}/inAppPurchases?limit=200")
+      items2 = resp2["data"] || []
+      UI.message("v1 relationship: #{items2.size} item(s) | product IDs: #{items2.map { |i| i.dig('attributes','productId') }.join(', ')}")
+      match2 = items2.find { |i| i.dig("attributes", "productId") == product_id }
+      return match2["id"] if match2
+
+      # 1c. v1 top-level collection filtered by app (different query path from relationship)
+      resp3 = asc.call(:get, "/v1/inAppPurchases?filter[app]=#{app.id}&limit=200")
+      items3 = resp3["data"] || []
+      UI.message("v1 top-level: #{items3.size} item(s) | product IDs: #{items3.map { |i| i.dig('attributes','productId') }.join(', ')}")
+      match3 = items3.find { |i| i.dig("attributes", "productId") == product_id }
+      return match3["id"] if match3
+
+      nil
+    end
+
+    iap_id          = find_iap.call
+    iap_just_created = false
+
+    if iap_id
+      UI.message("IAP already exists: #{iap_id}")
+    else
+      UI.message("Creating IAP #{product_id}...")
+      resp   = asc.call(:post, "/v2/inAppPurchases", body: {
+        data: {
+          type: "inAppPurchases",
+          attributes: {
+            productId:         product_id,
+            inAppPurchaseType: "NON_CONSUMABLE",
+            name:              iap_name,
+          },
+          relationships: {
+            app: { data: { type: "apps", id: app.id } },
+          },
+        },
+      })
+      iap_id = resp.dig("data", "id")
+
+      unless iap_id
+        err = resp.dig("errors", 0, "detail") || ""
+        err_title = resp.dig("errors", 0, "title") || ""
+        UI.message("Create response (no id): #{resp.to_json[0..800]}")
+
+        if err.include?("already") || err_title.include?("already") ||
+           err.include?("duplicate") || err_title.include?("duplicate") ||
+           err.include?("being used") || err_title.include?("being used")
+          UI.important("Duplicate detected — re-fetching IAP list...")
+          iap_id = find_iap.call
+          raise "Could not find existing IAP after duplicate error.\nFull create response: #{resp.to_json}" unless iap_id
+          UI.message("Found existing IAP: #{iap_id}")
+        else
+          raise "Failed to create IAP: #{err.empty? ? resp.inspect : "#{err_title} — #{err}"}"
+        end
+      else
+        UI.success("Created IAP: #{iap_id}")
+        iap_just_created = true
+        # Set reviewNote via PATCH (not accepted in the CREATE body)
+        asc.call(:patch, "/v2/inAppPurchases/#{iap_id}", body: {
+          data: { type: "inAppPurchases", id: iap_id,
+                  attributes: { reviewNote: review_note } },
+        })
+        UI.success("Review note set")
+        sleep 2
+      end
+    end
+
+    # ---- 2. English localization (name + description) ----
+    loc_resp = asc.call(:get, "/v1/inAppPurchaseLocalizations?filter[inAppPurchaseV2]=#{iap_id}&filter[locale]=#{locale}")
+    if loc_resp.dig("data", 0)
+      UI.message("#{locale} localization already exists")
+    else
+      UI.message("Adding #{locale} localization...")
+      asc.call(:post, "/v1/inAppPurchaseLocalizations", body: {
+        data: {
+          type: "inAppPurchaseLocalizations",
+          attributes: {
+            locale:      locale,
+            name:        iap_name,
+            description: iap_desc,
+          },
+          relationships: {
+            inAppPurchaseV2: { data: { type: "inAppPurchases", id: iap_id } },
+          },
+        },
+      })
+      UI.success("#{locale} localization added")
+    end
+
+    # ---- 3. Pricing — $2.99 base in USD, Apple auto-converts all territories ----
+    # v1 and v2 use different ID formats for the same IAP resource.
+    # When iap_id came from the v1 list (UUID), the v2 pricePoints endpoint won't return
+    # data for it — but the price was already set in a prior run. Skip gracefully.
+    pp_resp   = asc.call(:get, "/v2/inAppPurchases/#{iap_id}/pricePoints?filter[territory]=USA")
+    price_pts = pp_resp["data"] || []
+    target_pp = price_pts.find { |pp| pp.dig("attributes", "customerPrice") == price_usd }
+
+    if target_pp.nil? && !iap_just_created
+      UI.important("Price points unavailable for existing IAP (v1/v2 ID mismatch) — price was set in a prior run, skipping")
+    elsif target_pp.nil?
+      raise "Price point $#{price_usd} not found. Available: #{price_pts.map { |pp| pp.dig('attributes', 'customerPrice') }.compact.sort.first(8).join(', ')}"
+    else
+      UI.message("Price point $#{price_usd} → id=#{target_pp['id']}")
+
+    sched_resp = asc.call(:post, "/v1/inAppPurchasePriceSchedules", body: {
+      data: {
+        type: "inAppPurchasePriceSchedules",
+        relationships: {
+          inAppPurchase: { data: { type: "inAppPurchases", id: iap_id } },
+          baseTerritory: { data: { type: "territories",   id: "USA"  } },
+          manualPrices:  { data: [{ type: "inAppPurchasePrices", id: "${p1}" }] },
+        },
+      },
+      included: [
+        {
+          id:   "${p1}",
+          type: "inAppPurchasePrices",
+          attributes: { startDate: nil },
+          relationships: {
+            inAppPurchasePricePoint: { data: { type: "inAppPurchasePricePoints", id: target_pp["id"] } },
+            territory:               { data: { type: "territories",              id: "USA"            } },
+          },
+        },
+      ],
+    })
+
+    if sched_resp.dig("errors")
+      detail = sched_resp["errors"].map { |e| e["detail"] }.join(", ")
+      # "price schedule already exists" on a re-run is not a real error
+      UI.important("Pricing note: #{detail}")
+    else
+      UI.success("Price set to $#{price_usd} (Apple auto-converts all other territories)")
+    end
+    end  # closes the target_pp else branch
+
+    UI.success("IAP setup complete!")
+    UI.success("Product ID : #{product_id}")
+    UI.important("Still needed: upload a paywall screenshot in ASC → your app → IAP → #{iap_name} → Review Information")
   end
 end
