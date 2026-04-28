@@ -16,6 +16,7 @@ Flutter/Flame iOS puzzle game. Bundle ID: `com.gravity.gravityGame`. Indie, no P
 | Review notes | `gh workflow run set-review-notes.yml` |
 | App Store status | `gh workflow run check-status.yml` |
 | IAP setup | `gh workflow run setup-iap.yml` |
+| Submit for review | `gh workflow run submit-for-review.yml` |
 
 ## Key Files
 
@@ -33,9 +34,12 @@ app/
 fastlane/Fastfile              # All automation lanes
 ```
 
-## Version
+## Version & Release Flow
 
-Always `1.0.0` in `pubspec.yaml`. Build number is set automatically by CI (`github.run_number`). Never change the version manually.
+- Version in `pubspec.yaml` — bump patch (`1.0.0` → `1.0.1`) for each App Store release.
+- Build number is set automatically by CI (`github.run_number`). Never set it manually.
+- **Release flow**: bump version → push to `main` → CI builds TestFlight → wait for processing → `gh workflow run submit-for-review.yml`
+- Once a version is released on the App Store, you must increment the version string to submit again.
 
 ## Fastlane Lanes
 
@@ -44,6 +48,7 @@ Always `1.0.0` in `pubspec.yaml`. Build number is set automatically by CI (`gith
 | `beta` | Build + sign + upload to TestFlight (used by CI) |
 | `submit_metadata` | Push name, description, keywords, category to ASC |
 | `set_review_notes` | Fill App Review Information (contact, notes, external services) |
+| `submit_for_review` | Create ASC version, attach latest build, submit for review |
 | `check_status` | Print current App Store version state |
 | `setup_iap` | Create/update the premium IAP product in ASC |
 
