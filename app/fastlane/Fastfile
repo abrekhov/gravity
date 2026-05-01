@@ -605,25 +605,22 @@ platform :ios do
   end
 
   lane :set_worldwide_availability do
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_API_KEY"],
-    )
-
     require 'jwt'
     require 'net/http'
     require 'json'
 
-    # Build JWT
-    private_key = OpenSSL::PKey::EC.new(api_key.key_content)
+    key_id    = ENV["ASC_KEY_ID"]
+    issuer_id = ENV["ASC_ISSUER_ID"]
+    key_raw   = ENV["ASC_API_KEY"]
+
+    private_key = OpenSSL::PKey::EC.new(key_raw)
     payload = {
-      iss: api_key.issuer_id,
+      iss: issuer_id,
       iat: Time.now.to_i,
       exp: Time.now.to_i + 1200,
       aud: "appstoreconnect-v1"
     }
-    token = JWT.encode(payload, private_key, "ES256", { kid: api_key.key_id })
+    token = JWT.encode(payload, private_key, "ES256", { kid: key_id })
 
     app_id = "6761319901"
 
