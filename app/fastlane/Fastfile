@@ -638,8 +638,19 @@ platform :ios do
     all_territory_ids = JSON.parse(res_t.body)["data"].map { |t| t["id"] }
     UI.message("Found #{all_territory_ids.count} territories")
 
-    # Build compound document: appAvailabilities + territoryAvailabilities (correct v2 relationship)
-    # Apple requires local IDs in the format "${local-id}" for inline resource creation
+    # GET existing availability record (one already exists per app)
+    res_get = asc.call("Get", "/v2/appAvailabilities?filter[app]=#{app_id}")
+    UI.message("GET existing: #{res_get.code} #{res_get.body[0..400]}")
+
+    avail_id = JSON.parse(res_get.body).dig("data", 0, "id") rescue nil
+    UI.message("Existing availability ID: #{avail_id}")
+
+    unless avail_id
+      UI.error("Could not find existing availability record")
+      next
+    end
+
+    # Build compound document for PATCH
     included = all_territory_ids.each_with_index.map do |tid, i|
       {
         type: "territoryAvailabilities",
@@ -653,24 +664,24 @@ platform :ios do
 
     ta_refs = included.map { |item| { type: "territoryAvailabilities", id: item[:id] } }
 
-    res_post = asc.call("Post", "/v2/appAvailabilities", {
+    res_patch = asc.call("Patch", "/v2/appAvailabilities/#{avail_id}", {
       data: {
         type: "appAvailabilities",
+        id: avail_id,
         attributes: { availableInNewTerritories: true },
         relationships: {
-          app: { data: { type: "apps", id: app_id } },
           territoryAvailabilities: { data: ta_refs }
         }
       },
       included: included
     })
 
-    UI.message("v2 POST result: #{res_post.code} #{res_post.body[0..500]}")
+    UI.message("PATCH result: #{res_patch.code} #{res_patch.body[0..500]}")
 
-    if res_post.code.to_i < 300
+    if res_patch.code.to_i < 300
       UI.success("App availability set to worldwide in all #{all_territory_ids.count} territories!")
     else
-      UI.error("Failed: #{res_post.code} #{res_post.body[0..500]}")
+      UI.error("Failed: #{res_patch.code} #{res_patch.body[0..500]}")
     end
   end
 
