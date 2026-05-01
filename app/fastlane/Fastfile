@@ -639,10 +639,11 @@ platform :ios do
     UI.message("Found #{all_territory_ids.count} territories")
 
     # Build compound document: appAvailabilities + territoryAvailabilities (correct v2 relationship)
+    # Apple requires local IDs in the format "${local-id}" for inline resource creation
     included = all_territory_ids.each_with_index.map do |tid, i|
       {
         type: "territoryAvailabilities",
-        id: "ta-#{i}",
+        id: "${ta-#{i}}",
         attributes: { available: true },
         relationships: {
           territory: { data: { type: "territories", id: tid } }
