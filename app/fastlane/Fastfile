@@ -638,59 +638,48 @@ platform :ios do
     all_territory_ids = JSON.parse(res_t.body)["data"].map { |t| t["id"] }
     UI.message("Found #{all_territory_ids.count} territories")
 
-    # Try to find existing availability ID — Apple often uses app_id as availability ID
-    avail_id = nil
-    [
-      "/v2/appAvailabilities/#{app_id}",
-      "/v2/apps/#{app_id}/appAvailability",
-    ].each do |path|
-      r = asc.call("Get", path)
-      UI.message("GET #{path}: #{r.code} #{r.body[0..200]}")
-      parsed = JSON.parse(r.body)["data"] rescue nil
-      if parsed
-        avail_id = parsed["id"] rescue parsed.dig(0, "id")
-        break if avail_id
+    # Availability ID == app_id (confirmed from previous runs)
+    avail_id = app_id
+
+    # Get currently enabled territories
+    res_cur = asc.call("Get", "/v2/appAvailabilities/#{avail_id}/territoryAvailabilities?limit=200")
+    UI.message("Current territories: #{res_cur.code} #{res_cur.body[0..300]}")
+    current_ids = (JSON.parse(res_cur.body)["data"] || []).map do |item|
+      item.dig("relationships", "territory", "data", "id")
+    end.compact rescue []
+    UI.message("Currently enabled: #{current_ids.count} territories")
+
+    missing_ids = all_territory_ids - current_ids
+    UI.message("Need to add: #{missing_ids.count} territories")
+
+    # Add each missing territory via POST /v2/territoryAvailabilities
+    ok = 0
+    fail_count = 0
+    missing_ids.each do |tid|
+      r = asc.call("Post", "/v2/territoryAvailabilities", {
+        data: {
+          type: "territoryAvailabilities",
+          attributes: { available: true },
+          relationships: {
+            appAvailability: { data: { type: "appAvailabilities", id: avail_id } },
+            territory: { data: { type: "territories", id: tid } }
+          }
+        }
+      })
+      if r.code.to_i < 300
+        ok += 1
+      else
+        fail_count += 1
+        UI.message("  #{tid}: #{r.code} #{r.body[0..150]}") if fail_count <= 5
       end
     end
-    UI.message("Existing availability ID: #{avail_id.inspect}")
 
-    unless avail_id
-      UI.error("Could not find existing availability record — check permissions")
-      next
-    end
-
-    # Build compound document for PATCH
-    included = all_territory_ids.each_with_index.map do |tid, i|
-      {
-        type: "territoryAvailabilities",
-        id: "${ta-#{i}}",
-        attributes: { available: true },
-        relationships: {
-          territory: { data: { type: "territories", id: tid } }
-        }
-      }
-    end
-
-    ta_refs = included.map { |item| { type: "territoryAvailabilities", id: item[:id] } }
-
-    res_patch = asc.call("Patch", "/v2/appAvailabilities/#{avail_id}", {
-      data: {
-        type: "appAvailabilities",
-        id: avail_id,
-        attributes: { availableInNewTerritories: true },
-        relationships: {
-          territoryAvailabilities: { data: ta_refs }
-        }
-      },
-      included: included
-    })
-
-    UI.message("PATCH result: #{res_patch.code} #{res_patch.body[0..500]}")
-
-    if res_patch.code.to_i < 300
-      UI.success("App availability set to worldwide in all #{all_territory_ids.count} territories!")
+    if missing_ids.empty?
+      UI.success("App already available in all #{all_territory_ids.count} territories!")
+    elsif fail_count == 0
+      UI.success("Added #{ok} territories — app now available worldwide!")
     else
-      UI.error("Failed: #{res_patch.code} #{res_patch.body[0..500]}")
+      UI.message("Added #{ok}, failed #{fail_count} — check logs above")
     end
   end
 
