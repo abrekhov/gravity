@@ -635,44 +635,41 @@ platform :ios do
 
     # Fetch all territory IDs
     res = asc.call("Get", "/v1/territories?limit=200")
-    all_territories = JSON.parse(res.body)["data"].map { |t| { type: "territories", id: t["id"] } }
-    UI.message("Found #{all_territories.count} territories")
+    all_territory_ids = JSON.parse(res.body)["data"].map { |t| t["id"] }
+    UI.message("Found #{all_territory_ids.count} territories")
 
-    # Check current available territories for the app
-    res_cur = asc.call("Get", "/v1/apps/#{app_id}/availableTerritories?limit=5")
-    UI.message("Current available territories (sample): #{res_cur.code} #{res_cur.body[0..200]}")
+    # Build included items for each territory (JSON:API compound document)
+    included = all_territory_ids.each_with_index.map do |tid, i|
+      {
+        type: "appAvailabilityItems",
+        id: "item-#{i}",
+        relationships: {
+          territory: { data: { type: "territories", id: tid } }
+        }
+      }
+    end
 
-    # Try v2 POST for app availability (Apple moved this to v2)
-    res_v2 = asc.call("Post", "/v2/appAvailabilities", {
+    avail_items_refs = included.map { |item| { type: "appAvailabilityItems", id: item[:id] } }
+
+    body = {
       data: {
         type: "appAvailabilities",
         attributes: { availableInNewTerritories: true },
         relationships: {
           app: { data: { type: "apps", id: app_id } },
-          availableTerritories: { data: all_territories }
+          appAvailabilityItems: { data: avail_items_refs }
         }
-      }
-    })
-    UI.message("v2 POST result: #{res_v2.code} #{res_v2.body[0..400]}")
+      },
+      included: included
+    }
+
+    res_v2 = asc.call("Post", "/v2/appAvailabilities", body)
+    UI.message("v2 POST result: #{res_v2.code} #{res_v2.body[0..500]}")
 
     if res_v2.code.to_i < 300
-      UI.success("App availability set to worldwide via v2 API!")
+      UI.success("App availability set to worldwide!")
     else
-      # Try Spaceship's built-in method
-      UI.message("v2 POST failed, trying Spaceship...")
-      app_store_connect_api_key(
-        key_id:      key_id,
-        issuer_id:   issuer_id,
-        key_content: key_raw,
-      )
-      app = Spaceship::ConnectAPI::App.find("com.gravity.gravityGame")
-      begin
-        # Attempt to get current availability via Spaceship
-        avail = Spaceship::ConnectAPI.get_app_availability(app_id: app.id)
-        UI.message("Spaceship availability: #{avail.to_s[0..200]}")
-      rescue => e
-        UI.message("Spaceship get_app_availability error: #{e.message}")
-      end
+      UI.error("Failed: #{res_v2.code} #{res_v2.body[0..500]}")
     end
   end
 
