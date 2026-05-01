@@ -624,38 +624,64 @@ platform :ios do
 
     app_id = "6761319901"
 
-    # Fetch all available territory IDs
-    uri = URI("https://api.appstoreconnect.apple.com/v1/territories?limit=200")
-    req = Net::HTTP::Get.new(uri)
-    req["Authorization"] = "Bearer #{token}"
-    req["Content-Type"] = "application/json"
-    res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |h| h.request(req) }
+    def asc_request(token, method, path, body = nil)
+      uri = URI("https://api.appstoreconnect.apple.com#{path}")
+      req = Net::HTTP.const_get(method).new(uri)
+      req["Authorization"] = "Bearer #{token}"
+      req["Content-Type"] = "application/json"
+      req.body = body.to_json if body
+      Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |h| h.request(req) }
+    end
+
+    # Fetch all territory IDs
+    res = asc_request(token, "Get", "/v1/territories?limit=200")
     territories = JSON.parse(res.body)["data"].map { |t| { type: "territories", id: t["id"] } }
     UI.message("Found #{territories.count} territories")
 
-    # Create new app availability covering all territories
-    body = {
-      data: {
-        type: "appAvailabilities",
-        attributes: { availableInNewTerritories: true },
-        relationships: {
-          app: { data: { type: "apps", id: app_id } },
-          availableTerritories: { data: territories }
+    # GET existing availability record to find its ID
+    res2 = asc_request(token, "Get", "/v1/apps/#{app_id}/appAvailability")
+    UI.message("Current availability: #{res2.code} #{res2.body[0..300]}")
+
+    avail_data = JSON.parse(res2.body)["data"] rescue nil
+
+    if avail_data
+      avail_id = avail_data["id"]
+      UI.message("Availability ID: #{avail_id}")
+
+      # PATCH existing availability to enable all territories
+      res3 = asc_request(token, "Patch", "/v1/appAvailabilities/#{avail_id}", {
+        data: {
+          type: "appAvailabilities",
+          id: avail_id,
+          attributes: { availableInNewTerritories: true }
         }
-      }
-    }.to_json
+      })
+      UI.message("PATCH result: #{res3.code} #{res3.body[0..300]}")
 
-    uri2 = URI("https://api.appstoreconnect.apple.com/v1/appAvailabilities")
-    req2 = Net::HTTP::Post.new(uri2)
-    req2["Authorization"] = "Bearer #{token}"
-    req2["Content-Type"] = "application/json"
-    req2.body = body
-    res2 = Net::HTTP.start(uri2.hostname, uri2.port, use_ssl: true) { |h| h.request(req2) }
+      # Replace territories relationship
+      res4 = asc_request(token, "Patch", "/v1/appAvailabilities/#{avail_id}/relationships/availableTerritories", {
+        data: territories
+      })
+      UI.message("Territories update: #{res4.code} #{res4.body[0..300]}")
 
-    if res2.code.to_i < 300
-      UI.success("App availability set to worldwide!")
+      if res4.code.to_i < 300 || res4.body.empty?
+        UI.success("App availability set to worldwide!")
+      else
+        UI.error("Failed to set territories: #{res4.code} #{res4.body}")
+      end
     else
-      UI.error("Failed: #{res2.code} #{res2.body}")
+      # Fall back to POST
+      res_post = asc_request(token, "Post", "/v1/appAvailabilities", {
+        data: {
+          type: "appAvailabilities",
+          attributes: { availableInNewTerritories: true },
+          relationships: {
+            app: { data: { type: "apps", id: app_id } },
+            availableTerritories: { data: territories }
+          }
+        }
+      })
+      UI.message("POST result: #{res_post.code} #{res_post.body[0..500]}")
     end
   end
 
