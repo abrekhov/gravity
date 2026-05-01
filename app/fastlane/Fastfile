@@ -624,7 +624,7 @@ platform :ios do
 
     app_id = "6761319901"
 
-    def asc_request(token, method, path, body = nil)
+    asc = lambda do |method, path, body = nil|
       uri = URI("https://api.appstoreconnect.apple.com#{path}")
       req = Net::HTTP.const_get(method).new(uri)
       req["Authorization"] = "Bearer #{token}"
@@ -634,54 +634,45 @@ platform :ios do
     end
 
     # Fetch all territory IDs
-    res = asc_request(token, "Get", "/v1/territories?limit=200")
-    territories = JSON.parse(res.body)["data"].map { |t| { type: "territories", id: t["id"] } }
-    UI.message("Found #{territories.count} territories")
+    res = asc.call("Get", "/v1/territories?limit=200")
+    all_territories = JSON.parse(res.body)["data"].map { |t| { type: "territories", id: t["id"] } }
+    UI.message("Found #{all_territories.count} territories")
 
-    # GET existing availability record to find its ID
-    res2 = asc_request(token, "Get", "/v1/apps/#{app_id}/appAvailability")
-    UI.message("Current availability: #{res2.code} #{res2.body[0..300]}")
+    # Check current available territories for the app
+    res_cur = asc.call("Get", "/v1/apps/#{app_id}/availableTerritories?limit=5")
+    UI.message("Current available territories (sample): #{res_cur.code} #{res_cur.body[0..200]}")
 
-    avail_data = JSON.parse(res2.body)["data"] rescue nil
-
-    if avail_data
-      avail_id = avail_data["id"]
-      UI.message("Availability ID: #{avail_id}")
-
-      # PATCH existing availability to enable all territories
-      res3 = asc_request(token, "Patch", "/v1/appAvailabilities/#{avail_id}", {
-        data: {
-          type: "appAvailabilities",
-          id: avail_id,
-          attributes: { availableInNewTerritories: true }
+    # Try v2 POST for app availability (Apple moved this to v2)
+    res_v2 = asc.call("Post", "/v2/appAvailabilities", {
+      data: {
+        type: "appAvailabilities",
+        attributes: { availableInNewTerritories: true },
+        relationships: {
+          app: { data: { type: "apps", id: app_id } },
+          availableTerritories: { data: all_territories }
         }
-      })
-      UI.message("PATCH result: #{res3.code} #{res3.body[0..300]}")
+      }
+    })
+    UI.message("v2 POST result: #{res_v2.code} #{res_v2.body[0..400]}")
 
-      # Replace territories relationship
-      res4 = asc_request(token, "Patch", "/v1/appAvailabilities/#{avail_id}/relationships/availableTerritories", {
-        data: territories
-      })
-      UI.message("Territories update: #{res4.code} #{res4.body[0..300]}")
-
-      if res4.code.to_i < 300 || res4.body.empty?
-        UI.success("App availability set to worldwide!")
-      else
-        UI.error("Failed to set territories: #{res4.code} #{res4.body}")
-      end
+    if res_v2.code.to_i < 300
+      UI.success("App availability set to worldwide via v2 API!")
     else
-      # Fall back to POST
-      res_post = asc_request(token, "Post", "/v1/appAvailabilities", {
-        data: {
-          type: "appAvailabilities",
-          attributes: { availableInNewTerritories: true },
-          relationships: {
-            app: { data: { type: "apps", id: app_id } },
-            availableTerritories: { data: territories }
-          }
-        }
-      })
-      UI.message("POST result: #{res_post.code} #{res_post.body[0..500]}")
+      # Try Spaceship's built-in method
+      UI.message("v2 POST failed, trying Spaceship...")
+      app_store_connect_api_key(
+        key_id:      key_id,
+        issuer_id:   issuer_id,
+        key_content: key_raw,
+      )
+      app = Spaceship::ConnectAPI::App.find("com.gravity.gravityGame")
+      begin
+        # Attempt to get current availability via Spaceship
+        avail = Spaceship::ConnectAPI.get_app_availability(app_id: app.id)
+        UI.message("Spaceship availability: #{avail.to_s[0..200]}")
+      rescue => e
+        UI.message("Spaceship get_app_availability error: #{e.message}")
+      end
     end
   end
 
