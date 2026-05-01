@@ -1,0 +1,47 @@
+name: Check Territories
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: macos-26
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: app
+      - name: Check territories and app availability
+        working-directory: app
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+        run: |
+          bundle exec ruby -e "
+            require 'spaceship'
+            Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+              key_id: ENV['ASC_KEY_ID'],
+              issuer_id: ENV['ASC_ISSUER_ID'],
+              key: ENV['ASC_API_KEY']
+            )
+            app = Spaceship::ConnectAPI::App.find('com.gravity.gravityGame')
+            puts 'App ID: ' + app.id
+            puts 'Name: ' + app.name.to_s
+
+            # Check app availability / territories
+            begin
+              availability = Spaceship::ConnectAPI.get_app_availabilities(app_id: app.id)
+              puts 'Availability: ' + availability.to_s
+            rescue => e
+              puts 'Availability error: ' + e.message
+            end
+
+            # Check versions
+            versions = app.get_app_store_versions
+            versions.each do |v|
+              puts \"Version #{v.version_string} state=#{v.app_store_state} earliest_release=#{v.earliest_release_date}\"
+            end
+          "
