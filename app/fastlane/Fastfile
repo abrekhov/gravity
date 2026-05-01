@@ -633,53 +633,41 @@ platform :ios do
       Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |h| h.request(req) }
     end
 
-    # Fetch all territory IDs
-    res_t = asc.call("Get", "/v1/territories?limit=200")
-    all_territory_ids = JSON.parse(res_t.body)["data"].map { |t| t["id"] }
-    UI.message("Found #{all_territory_ids.count} territories")
-
-    # Availability ID == app_id (confirmed from previous runs)
+    require 'base64'
     avail_id = app_id
 
-    # Get currently enabled territories
-    res_cur = asc.call("Get", "/v2/appAvailabilities/#{avail_id}/territoryAvailabilities?limit=200")
-    UI.message("Current territories: #{res_cur.code} #{res_cur.body[0..300]}")
-    current_ids = (JSON.parse(res_cur.body)["data"] || []).map do |item|
-      item.dig("relationships", "territory", "data", "id")
-    end.compact rescue []
-    UI.message("Currently enabled: #{current_ids.count} territories")
-
-    missing_ids = all_territory_ids - current_ids
-    UI.message("Need to add: #{missing_ids.count} territories")
-
-    # Add each missing territory via POST /v2/territoryAvailabilities
-    ok = 0
-    fail_count = 0
-    missing_ids.each do |tid|
-      r = asc.call("Post", "/v2/territoryAvailabilities", {
-        data: {
-          type: "territoryAvailabilities",
-          attributes: { available: true },
-          relationships: {
-            appAvailability: { data: { type: "appAvailabilities", id: avail_id } },
-            territory: { data: { type: "territories", id: tid } }
-          }
-        }
-      })
-      if r.code.to_i < 300
-        ok += 1
-      else
-        fail_count += 1
-        UI.message("  #{tid}: #{r.code} #{r.body[0..150]}") if fail_count <= 5
-      end
+    # Territory IDs are base64-encoded JSON in the id field: {"s":"app_id","t":"USA"}
+    all_pages = []
+    cursor = nil
+    loop do
+      path = "/v2/appAvailabilities/#{avail_id}/territoryAvailabilities?limit=200"
+      path += "&cursor=#{cursor}" if cursor
+      res = asc.call("Get", path)
+      body = JSON.parse(res.body)
+      all_pages.concat(body["data"] || [])
+      cursor = body.dig("links", "next") ? body.dig("meta", "paging", "nextCursor") : nil
+      break unless cursor
     end
 
+    enabled_ids = all_pages.map do |item|
+      decoded = JSON.parse(Base64.decode64(item["id"])) rescue nil
+      tid = decoded&.dig("t")
+      tid if item.dig("attributes", "available") == true
+    end.compact
+
+    UI.message("Currently enabled territories (#{enabled_ids.count}): #{enabled_ids.sort.join(', ')}")
+
+    # Fetch all possible territory IDs and report any missing
+    res_t = asc.call("Get", "/v1/territories?limit=200")
+    all_territory_ids = JSON.parse(res_t.body)["data"].map { |t| t["id"] }
+    missing_ids = all_territory_ids - enabled_ids
+    UI.message("Missing territories (#{missing_ids.count}): #{missing_ids.join(', ')}")
+
     if missing_ids.empty?
-      UI.success("App already available in all #{all_territory_ids.count} territories!")
-    elsif fail_count == 0
-      UI.success("Added #{ok} territories — app now available worldwide!")
+      UI.success("App is available in ALL #{all_territory_ids.count} territories!")
     else
-      UI.message("Added #{ok}, failed #{fail_count} — check logs above")
+      UI.message("App is NOT available in: #{missing_ids.join(', ')}")
+      UI.message("To add territories, update via App Store Connect web UI: Pricing and Availability > Availability > Edit")
     end
   end
 
