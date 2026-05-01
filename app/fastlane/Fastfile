@@ -633,51 +633,43 @@ platform :ios do
       Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |h| h.request(req) }
     end
 
-    # Probe v2 appAvailabilities — GET current state
-    res_get = asc.call("Get", "/v2/apps/#{app_id}/appAvailability?include=appAvailabilityItems")
-    UI.message("v2 GET availability: #{res_get.code} #{res_get.body[0..600]}")
+    # Fetch all territory IDs
+    res_t = asc.call("Get", "/v1/territories?limit=200")
+    all_territory_ids = JSON.parse(res_t.body)["data"].map { |t| t["id"] }
+    UI.message("Found #{all_territory_ids.count} territories")
 
-    # POST v2 with only app relationship (no territory relationship — v2 doesn't support it inline)
+    # Build compound document: appAvailabilities + territoryAvailabilities (correct v2 relationship)
+    included = all_territory_ids.each_with_index.map do |tid, i|
+      {
+        type: "territoryAvailabilities",
+        id: "ta-#{i}",
+        attributes: { available: true },
+        relationships: {
+          territory: { data: { type: "territories", id: tid } }
+        }
+      }
+    end
+
+    ta_refs = included.map { |item| { type: "territoryAvailabilities", id: item[:id] } }
+
     res_post = asc.call("Post", "/v2/appAvailabilities", {
       data: {
         type: "appAvailabilities",
         attributes: { availableInNewTerritories: true },
         relationships: {
-          app: { data: { type: "apps", id: app_id } }
+          app: { data: { type: "apps", id: app_id } },
+          territoryAvailabilities: { data: ta_refs }
         }
-      }
+      },
+      included: included
     })
-    UI.message("v2 POST (app only): #{res_post.code} #{res_post.body[0..600]}")
+
+    UI.message("v2 POST result: #{res_post.code} #{res_post.body[0..500]}")
 
     if res_post.code.to_i < 300
-      avail_id = JSON.parse(res_post.body).dig("data", "id")
-      UI.success("Created availability #{avail_id} — now need to add territories separately")
-      # Fetch all territory IDs and add them
-      res_t = asc.call("Get", "/v1/territories?limit=200")
-      all_territory_ids = JSON.parse(res_t.body)["data"].map { |t| t["id"] }
-      UI.message("Adding #{all_territory_ids.count} territories individually...")
-      ok = 0
-      fail_count = 0
-      all_territory_ids.each do |tid|
-        r = asc.call("Post", "/v2/appAvailabilityItems", {
-          data: {
-            type: "appAvailabilityItems",
-            relationships: {
-              appAvailability: { data: { type: "appAvailabilities", id: avail_id } },
-              territory: { data: { type: "territories", id: tid } }
-            }
-          }
-        })
-        if r.code.to_i < 300
-          ok += 1
-        else
-          fail_count += 1
-          UI.message("  #{tid} failed: #{r.code} #{r.body[0..100]}") if fail_count <= 3
-        end
-      end
-      UI.success("Done: #{ok} territories added, #{fail_count} failed")
+      UI.success("App availability set to worldwide in all #{all_territory_ids.count} territories!")
     else
-      UI.error("POST failed — inspect logs above to determine correct API structure")
+      UI.error("Failed: #{res_post.code} #{res_post.body[0..500]}")
     end
   end
 
