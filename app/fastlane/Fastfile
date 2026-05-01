@@ -604,6 +604,64 @@ platform :ios do
     end
   end
 
+  lane :set_worldwide_availability do
+    api_key = app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_API_KEY"],
+    )
+
+    require 'jwt'
+    require 'net/http'
+    require 'json'
+
+    # Build JWT
+    private_key = OpenSSL::PKey::EC.new(api_key.key_content)
+    payload = {
+      iss: api_key.issuer_id,
+      iat: Time.now.to_i,
+      exp: Time.now.to_i + 1200,
+      aud: "appstoreconnect-v1"
+    }
+    token = JWT.encode(payload, private_key, "ES256", { kid: api_key.key_id })
+
+    app_id = "6761319901"
+
+    # Fetch all available territory IDs
+    uri = URI("https://api.appstoreconnect.apple.com/v1/territories?limit=200")
+    req = Net::HTTP::Get.new(uri)
+    req["Authorization"] = "Bearer #{token}"
+    req["Content-Type"] = "application/json"
+    res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |h| h.request(req) }
+    territories = JSON.parse(res.body)["data"].map { |t| { type: "territories", id: t["id"] } }
+    UI.message("Found #{territories.count} territories")
+
+    # Create new app availability covering all territories
+    body = {
+      data: {
+        type: "appAvailabilities",
+        attributes: { availableInNewTerritories: true },
+        relationships: {
+          app: { data: { type: "apps", id: app_id } },
+          availableTerritories: { data: territories }
+        }
+      }
+    }.to_json
+
+    uri2 = URI("https://api.appstoreconnect.apple.com/v1/appAvailabilities")
+    req2 = Net::HTTP::Post.new(uri2)
+    req2["Authorization"] = "Bearer #{token}"
+    req2["Content-Type"] = "application/json"
+    req2.body = body
+    res2 = Net::HTTP.start(uri2.hostname, uri2.port, use_ssl: true) { |h| h.request(req2) }
+
+    if res2.code.to_i < 300
+      UI.success("App availability set to worldwide!")
+    else
+      UI.error("Failed: #{res2.code} #{res2.body}")
+    end
+  end
+
   desc "Set age rating to 4+ (puzzle game, no mature content)"
   lane :set_age_rating do
     require 'net/http'
