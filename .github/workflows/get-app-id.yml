@@ -1,0 +1,32 @@
+name: Get App ID
+on:
+  workflow_dispatch:
+jobs:
+  get:
+    runs-on: macos-26
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: app
+      - name: Get numeric App ID
+        working-directory: app
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+        run: |
+          bundle exec ruby -e "
+            require 'spaceship'
+            Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+              key_id: ENV['ASC_KEY_ID'],
+              issuer_id: ENV['ASC_ISSUER_ID'],
+              key: ENV['ASC_API_KEY']
+            )
+            app = Spaceship::ConnectAPI::App.find('com.gravity.gravityGame')
+            puts \"App Store link: https://apps.apple.com/app/id#{app.id}\"
+          "
